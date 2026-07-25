@@ -16,8 +16,8 @@ class YieldModel(nn.Module):
         self.backbone = backbone
         self.head = head
 
-    def forward(self, x: torch.Tensor):
-        return self.head(self.backbone(x))
+    def forward(self, x: torch.Tensor, mask: torch.Tensor):
+        return self.head(self.backbone(x, mask))
 
 
 def build_model(name: str, in_dim: int, predict_variance: bool, **kw) -> YieldModel:

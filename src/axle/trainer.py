@@ -50,7 +50,7 @@ def train_fold(
         for batch in tl:
             batch = _to_device(batch, device)
             opt.zero_grad()
-            loss = loss_fn(model(batch["sample"]), batch)
+            loss = loss_fn(model(batch["sample"], batch["mask"]), batch)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(params, grad_clip)
             opt.step()
@@ -71,7 +71,7 @@ def _validate(model, loss_fn, loader, val_ds, device) -> pd.DataFrame:
     idx, tgt, pred, var = [], [], [], []
     for batch in loader:
         b = _to_device(batch, device)
-        out = model(b["sample"])
+        out = model(b["sample"], b["mask"])
         mu = out["mu"] if isinstance(out, dict) else out
         v = loss_fn.predictive_variance(out, b) if hasattr(loss_fn, "predictive_variance") else None
         tgt.extend(b["target"].cpu().numpy())
