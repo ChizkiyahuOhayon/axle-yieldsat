@@ -57,6 +57,7 @@ def run(cfg: DictConfig) -> dict:
 
     loss_kw = {k: v for k, v in cfg.loss.items() if k != "name"}
     model_kw = {k: v for k, v in cfg.model.items() if k != "name"}
+    members = int(cfg.get("ensemble", {}).get("members", 1))
 
     fold_metrics, all_preds = [], []
     for fold, (tr_local, va_local) in enumerate(splits):
@@ -66,12 +67,15 @@ def run(cfg: DictConfig) -> dict:
         train_ds = YieldSATPixels(cfg.data.cache_dir, indices=tr, nan_fill=cfg.data.nan_fill)
         val_ds = YieldSATPixels(cfg.data.cache_dir, indices=va, nan_fill=cfg.data.nan_fill)
 
-        loss_fn = build_loss(cfg.loss.name, **loss_kw)
-        model = build_model(cfg.model.name, in_dim=full.num_features,
-                            predict_variance=loss_fn.predicts_variance, **model_kw)
-        print(f"[fold {fold}] train={len(tr):,} val={len(va):,} "
-              f"({cfg.model.name}+{cfg.loss.name}, {cfg.protocol.name})")
-        df, m = train_fold(model, loss_fn, train_ds, val_ds,
+        def build():  # fresh (model, loss) per ensemble member
+            loss_fn = build_loss(cfg.loss.name, **loss_kw)
+            model = build_model(cfg.model.name, in_dim=full.num_features,
+                                predict_variance=loss_fn.predicts_variance, **model_kw)
+            return model, loss_fn
+
+        tag = f"{cfg.model.name}+{cfg.loss.name}" + (f" x{members}" if members > 1 else "")
+        print(f"[fold {fold}] train={len(tr):,} val={len(va):,} ({tag}, {cfg.protocol.name})")
+        df, m = train_fold(build, train_ds, val_ds, members=members, seed=cfg.seed,
                            epochs=cfg.train.epochs, batch_size=cfg.train.batch_size,
                            lr=cfg.train.lr, weight_decay=cfg.train.weight_decay,
                            grad_clip=cfg.train.grad_clip, num_workers=cfg.num_workers,
@@ -89,6 +93,7 @@ def run(cfg: DictConfig) -> dict:
     summary["run"] = {  # self-describing so results collect without re-parsing the config
         "data": cfg.data.name, "model": cfg.model.name, "loss": cfg.loss.name,
         "protocol": cfg.protocol.name, "crop": cfg.crop or "all", "seed": cfg.seed,
+        "members": members,
     }
     (out / "metrics.json").write_text(json.dumps(summary, indent=2))
     print("\n=== SUMMARY (mean +/- std across folds) ===")

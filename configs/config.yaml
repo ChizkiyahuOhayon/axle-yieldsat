@@ -12,6 +12,9 @@ crop: null          # optional single-crop filter, e.g. "wheat"; null = all crop
 device: null        # null -> auto (cuda if available)
 num_workers: 4
 
+ensemble:
+  members: 1        # >1 = deep ensemble (e.g. 5); combine with loss=axle for a reliability-aware DE
+
 train:
   epochs: 30
   batch_size: 1024

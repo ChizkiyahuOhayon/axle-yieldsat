@@ -102,6 +102,14 @@ python -m axle.train -m loss=mse,invvar,hetero,axle data=germany model=lstm prot
 - **losses**: `mse` (equal-weight baseline) · `invvar` (naive inverse-variance) ·
   `hetero` (learned, unanchored) · `axle` (anchored — ours).
 - **protocols**: `cv10` (in-distribution) · `loyo` · `loro` (the shift settings).
+- **deep ensemble**: add `ensemble.members=5`. With `loss=mse` this is the benchmark's
+  strongest baseline; with `loss=axle` it is a *reliability-aware* deep ensemble.
+  Variance is decomposed into epistemic (member spread) + aleatoric (predicted).
+
+```bash
+# Deep Ensemble baseline vs reliability-aware DE, under shift:
+python -m axle.train -m +experiment=deep_ensemble
+```
 
 Each run writes `predictions.parquet` and `metrics.json` (pixel/field RMSE·R²,
 calibration NLL·PICP@90, and the reliability-stratified gap), reported as

@@ -1,0 +1,18 @@
+# @package _global_
+# The paper's strongest baseline (Deep Ensemble) vs a reliability-aware DE (loss=axle),
+# under both shift protocols.
+#   python -m axle.train -m +experiment=deep_ensemble
+defaults:
+  - override /data: germany
+  - override /model: lstm
+ensemble:
+  members: 5
+crop: wheat
+train:
+  epochs: 30
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      loss: mse,axle
+      protocol: loyo,loro
