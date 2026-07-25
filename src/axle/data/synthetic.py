@@ -1,0 +1,79 @@
+"""Synthetic YieldSAT-format cache generator (importable).
+
+Produces a tiny cache identical in schema to ``scripts/prepare.py`` output so the
+full pipeline runs without the real dataset -- used by the CI smoke test and the
+clone-and-run demo. See ``scripts/make_synthetic_cache.py`` for the CLI.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import uuid
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from .prepare import S2_BANDS
+from .reliability import QUALITY_LEVELS
+
+
+def write_synthetic(out: str, fields: int = 120, pixels_per_field: int = 200, seed: int = 0) -> str:
+    """Write a synthetic cache to ``out`` in the exact prepare() format; return the path."""
+    rng = np.random.default_rng(seed)
+    bands, T, C = S2_BANDS, 24, len(S2_BANDS)
+    farms = [f"farm{i}" for i in range(4)]
+    crops = ["wheat", "rapeseed"]
+    years = [2018, 2019, 2020, 2021]
+
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    args = argparse.Namespace(fields=fields, pixels_per_field=pixels_per_field)
+    n = fields * pixels_per_field
+    sample = np.lib.format.open_memmap(out / "sample.npy", mode="w+", dtype=np.float32, shape=(n, T, C))
+
+    # a fixed linear "truth" over band means, so the target is learnable
+    w = rng.normal(size=C)
+    valid_slots = np.arange(6, 20)  # real acquisitions live mid-frame (season alignment)
+
+    rows = []
+    p = 0
+    for f in range(args.fields):
+        field = f"Synthetic_DUP0_{rng.choice(farms)}_field{f}_{rng.choice(crops)}_{rng.choice(years)}"
+        parts = field.split("_")
+        farm, crop, year = parts[2], parts[4], int(parts[5])
+        side = int(np.ceil(np.sqrt(args.pixels_per_field)))
+        field_effect = float(rng.normal(0, 1.5))   # per-field yield offset -> learnable field structure
+        for k in range(args.pixels_per_field):
+            x = np.full((T, C), np.nan, np.float32)
+            n_obs = rng.integers(8, len(valid_slots) + 1)
+            slots = np.sort(rng.choice(valid_slots, size=n_obs, replace=False))
+            sig = rng.normal(0, 1, size=(n_obs, C)).astype(np.float32)
+            # field_effect is injected into the FEATURES (a field-coherent spectral offset),
+            # so field-level yield structure is learnable from the input, not free noise.
+            x[slots] = sig * 500 + 1500 + field_effect * 300
+            sample[p] = x
+
+            feat = np.nanmean(x, axis=0)          # crude signal summary
+            n_i = float(rng.integers(0, 28))      # harvester support count 0..27
+            s_i = float(abs(rng.normal(0.9, 0.4)))
+            sigma2 = s_i**2 / max(n_i, 1)
+            clean = 6.0 + 0.002 * float(feat @ w)  # feat carries the field-coherent offset
+            target = clean + rng.normal(0, np.sqrt(sigma2 + 0.05))  # low-support -> noisier
+            q = QUALITY_LEVELS[min(2, int(n_i < 4) + int(n_i < 10))]
+            rows.append({
+                "index": str(uuid.uuid4()), "target": np.float32(np.clip(target, 0, 20)),
+                "field_shared_name": field, "farm": farm, "crop": crop, "year": year,
+                "row": np.int32(k // side), "col": np.int32(k % side),
+                "n_i": np.float32(n_i), "s_i": np.float32(s_i),
+                "quality": q, "quality_idx": np.int8(QUALITY_LEVELS.index(q)),
+                "sigma2_acq_raw": np.float32(sigma2),
+            })
+            p += 1
+    sample.flush()
+
+    pd.DataFrame(rows).to_parquet(out / "meta.parquet", index=False)
+    (out / "norm.json").write_text(json.dumps({b: {"mean": 1500.0, "std": 500.0} for b in bands}, indent=2))
+    (out / "bands.json").write_text(json.dumps(bands, indent=2))
+    print(f"[synthetic] wrote {out}  (N={n:,}  T={T}  C={C}  fields={fields})")
+    return str(out)

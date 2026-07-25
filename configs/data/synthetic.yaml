@@ -1,0 +1,4 @@
+# Tiny synthetic cache (scripts/make_synthetic_cache.py) for clone-and-run demos & CI.
+name: synthetic
+cache_dir: data/cache/Synthetic
+nan_fill: 0.0

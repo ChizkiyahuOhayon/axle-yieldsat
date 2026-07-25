@@ -1,0 +1,14 @@
+# @package _global_
+# The AXLE loss ablation on one shift protocol & backbone.
+#   python -m axle.train -m +experiment=axle_ablation
+defaults:
+  - override /data: germany
+  - override /model: lstm
+  - override /protocol: loro
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      loss: mse,invvar,hetero,axle
+train:
+  epochs: 30

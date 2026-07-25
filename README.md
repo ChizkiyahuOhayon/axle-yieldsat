@@ -36,6 +36,28 @@ pip install -e .            # add ".[log]" for Weights & Biases, ".[dev]" for te
 ```
 
 > **Python 3.10–3.12** is required (a `hydra-core` argparse issue affects 3.13+).
+> On a GPU server, install the matching CUDA build of PyTorch first (see
+> [pytorch.org](https://pytorch.org)); a conda env is provided in `environment.yml`.
+
+## Quick start — run without the dataset (≈1 min)
+
+Verify the full pipeline (data → model → AXLE loss → eval) end-to-end on a tiny
+**synthetic** cache — no 23 GB download needed:
+
+```bash
+make demo          # builds a synthetic cache, trains Transformer + AXLE
+# or explicitly:
+python scripts/make_synthetic_cache.py --out data/cache/Synthetic
+python -m axle.train data=synthetic model=transformer loss=axle protocol=cv10 \
+    protocol.n_splits=3 train.epochs=8
+```
+
+You should see pixel/field R² climb and a calibrated PICP@90 (~0.9). This is the
+same code path the real data uses — it is the clone-and-run guarantee (also run in CI).
+
+```bash
+make test          # unit tests + the end-to-end smoke test
+```
 
 ## Data
 
@@ -94,10 +116,19 @@ src/axle/
   eval/             metrics (accuracy, calibration, reliability-stratified)
   trainer.py        one-fold training loop
   train.py          Hydra entry: run a protocol end-to-end
-scripts/            prepare.py, extract_reliability_table.py, run_all.sh
-tests/              unit tests (losses, spatial M2 mechanism)
+  data/synthetic.py synthetic cache generator (clone-and-run demo / CI)
+scripts/            prepare.py, make_synthetic_cache.py, extract_reliability_table.py, run_all.sh
+tests/              unit + config-composition + end-to-end smoke tests
 docs/               METHOD.md, DATA.md, ROADMAP.md
+.github/workflows/  CI (tests + a real CLI run on Python 3.10–3.12)
 ```
+
+## Troubleshooting
+
+- **`hydra` argparse error / Python 3.13+**: use Python 3.10–3.12 (`environment.yml` pins 3.11).
+- **DataLoader worker crash on macOS**: pass `num_workers=0` (spawn quirk); Linux servers are fine with the default.
+- **`pin_memory` warning on Apple MPS**: harmless.
+- **First run is slow to build the cache**: `prepare.py` is a one-time step per country; training then reads the memmap directly.
 
 ## Tests
 

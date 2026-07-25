@@ -1,0 +1,11 @@
+# @package _global_
+# AXLE vs equal-weight under leave-one-year-out on Germany wheat.
+#   python -m axle.train +experiment=germany_loyo
+defaults:
+  - override /data: germany
+  - override /model: lstm
+  - override /loss: axle
+  - override /protocol: loyo
+crop: wheat
+train:
+  epochs: 30

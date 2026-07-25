@@ -1,0 +1,10 @@
+# Conda environment for servers. Usage:
+#   conda env create -f environment.yml && conda activate axle
+# For CUDA torch, install torch per https://pytorch.org after creating the env.
+name: axle
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - -e .
