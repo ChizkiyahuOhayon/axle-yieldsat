@@ -32,7 +32,7 @@ for the dataset layout and the (verified, exact) reliability join.
 ## Install
 
 ```bash
-git clone <your-fork-url> axle-yieldsat && cd axle-yieldsat
+git clone https://github.com/ChizkiyahuOhayon/axle-yieldsat.git && cd axle-yieldsat
 python -m venv .venv && source .venv/bin/activate     # Python 3.10–3.12
 pip install -e .            # add ".[log]" for Weights & Biases, ".[dev]" for tests
 ```
