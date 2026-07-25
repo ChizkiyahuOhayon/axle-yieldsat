@@ -28,6 +28,13 @@ from .utils.seed import set_seed
 
 def run(cfg: DictConfig) -> dict:
     set_seed(cfg.seed)
+    import torch
+    dev = cfg.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    if dev == "cuda":
+        print(f"[device] cuda | {torch.cuda.device_count()} visible GPU(s): "
+              f"{torch.cuda.get_device_name(0)}")
+    else:
+        print(f"[device] {dev} (no CUDA GPU visible)")
     out = Path(cfg.output_dir)
     out.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(cfg, out / "config.yaml")
