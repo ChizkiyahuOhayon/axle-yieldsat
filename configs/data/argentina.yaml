@@ -1,0 +1,3 @@
+name: argentina
+cache_dir: data/cache/Argentina
+nan_fill: 0.0

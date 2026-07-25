@@ -6,9 +6,9 @@ build/
 dist/
 .venv/
 venv/
-# data & artifacts (never commit)
-data/
-outputs/
+# data & artifacts (never commit) -- root-anchored so src/axle/data & configs/data are kept
+/data/
+/outputs/
 wandb/
 *.nc
 *.npy

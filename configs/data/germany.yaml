@@ -1,0 +1,4 @@
+# Prepared-cache location for one country (produced by scripts/prepare.py).
+name: germany
+cache_dir: data/cache/Germany
+nan_fill: 0.0            # value for NaN inputs AFTER normalisation (0 = per-band mean)
