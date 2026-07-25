@@ -63,22 +63,26 @@ make test          # unit tests + the end-to-end smoke test
 
 ## Data
 
-Point the pipeline at the YieldSAT release (`Both.zip` on the server at
-`/home/smbu/dy/nas/yieldsat`). Extract the per-country inner zips you need
-(see [`docs/DATA.md`](docs/DATA.md)), then build the training cache **once**:
+Build the training cache **once, straight from `Both.zip`** — no manual unzipping.
+`prepare.py` extracts each country's NetCDF on the fly, joins the AXLE reliability
+signals (printing a target-exact integrity check), writes the cache, and deletes
+the large intermediate NetCDF:
 
 ```bash
-# one country, with the AXLE reliability join (verifies the join is target-exact):
-python scripts/prepare.py \
-    --netcdf /path/Preprocessed/Germany/merge_s2-soil-dem-weather-coords.nc \
-    --both   /path/Both.zip --country Germany --out data/cache/Germany
+# start with Germany (smallest, ~7 GB NetCDF -> ~0.7 GB cache):
+python scripts/prepare.py --both /home/smbu/dy/nas/yieldsat/Both.zip \
+    --country Germany --out data/cache
 
-# all four countries at once (layout <root>/<Country>/merge_*.nc):
-python scripts/prepare.py --root /path/Preprocessed --both /path/Both.zip --out data/cache
+# or all four countries at once:
+python scripts/prepare.py --both /home/smbu/dy/nas/yieldsat/Both.zip --out data/cache
 ```
 
-This writes `sample.npy` (memmap), `meta.parquet` (targets + reliability), `norm.json`,
-`bands.json`. Default input = the 12 Sentinel-2 bands (`--bands` to change).
+This writes `data/cache/<Country>/` with `sample.npy` (memmap), `meta.parquet`
+(targets + reliability), `norm.json`, `bands.json`. Default input = the 12
+Sentinel-2 bands (`--bands` to change). The intermediate NetCDF is large
+(Germany 7 GB … Argentina 63 GB); pass `--nc-dir /fast/local/disk` to extract
+off the NAS, or `--keep-nc` to retain it. You do **not** need to unzip anything
+by hand — point `--both` at the original `Both.zip`.
 
 ## Train
 
@@ -127,6 +131,10 @@ docs/               METHOD.md, DATA.md, ROADMAP.md
 
 ## Troubleshooting
 
+- **`make test` → `pytest: No such file or directory`**: install dev extras — `pip install -e ".[dev]"` (or `make install`).
+- **`CUDA initialization: driver is too old` / trains on CPU**: your NVIDIA driver's CUDA version is older than the default torch build. Install a matching build, e.g. for a CUDA 12.2 driver: `pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cu121` (cu121 runs on 12.2 drivers; use `cu118` for older). Verify with `python -c "import torch; print(torch.cuda.is_available())"`.
+- **`sample.npy not found` when training**: run `scripts/prepare.py --both ... --out data/cache` first; `data=germany` reads `data/cache/Germany`.
+- **`prepare.py --root` prints `merge_*.nc not found`**: you pointed it at a tree of inner zips (`Preprocessed/<C>/<C>.zip`). Use the `--both /path/Both.zip` mode instead — it handles the zips for you.
 - **`hydra` argparse error / Python 3.13+**: use Python 3.10–3.12 (`environment.yml` pins 3.11).
 - **DataLoader worker crash on macOS**: pass `num_workers=0` (spawn quirk); Linux servers are fine with the default.
 - **`pin_memory` warning on Apple MPS**: harmless.

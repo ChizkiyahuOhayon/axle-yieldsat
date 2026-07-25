@@ -83,6 +83,29 @@ def open_inner_zip(both_zip: str, country: str, release: str = "Raw") -> zipfile
     return zipfile.ZipFile(_StoredSlice(both_zip, data_off, info.file_size))
 
 
+def extract_preprocessed_netcdf(both_zip: str, country: str, dest_dir: str,
+                                overwrite: bool = False, bufsize: int = 1 << 24) -> str:
+    """Extract ``Preprocessed/<country>/<country>.zip``'s NetCDF from ``Both.zip``.
+
+    Streams the (large) file to ``dest_dir/<country>/merge_*.nc`` without extracting
+    the whole 23 GB archive. Returns the path. Skips if present unless ``overwrite``.
+    """
+    import shutil
+
+    zf = open_inner_zip(both_zip, country, "Preprocessed")
+    member = zf.infolist()[0]  # each Preprocessed inner zip holds exactly one .nc
+    out_dir = Path(dest_dir) / country
+    out_dir.mkdir(parents=True, exist_ok=True)
+    target = out_dir / Path(member.filename).name
+    if target.exists() and not overwrite:
+        return str(target)
+    tmp = target.with_suffix(target.suffix + ".part")
+    with zf.open(member) as src, open(tmp, "wb") as dst:
+        shutil.copyfileobj(src, dst, length=bufsize)
+    tmp.rename(target)  # atomic: a partial extraction never looks complete
+    return str(target)
+
+
 def _read_raster(zf: zipfile.ZipFile, member: str) -> np.ndarray:
     with zf.open(member) as f:
         buf = f.read()
