@@ -1,0 +1,5 @@
+name: transformer
+hidden: 64
+layers: 2
+heads: 4
+dropout: 0.1

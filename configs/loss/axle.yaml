@@ -1,0 +1,2 @@
+name: axle
+learn_grade_scale: true   # learn g(Good/Average/Bad); set false to fix g=1

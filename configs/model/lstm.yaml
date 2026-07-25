@@ -1,0 +1,4 @@
+name: lstm
+hidden: 64
+layers: 1
+dropout: 0.0

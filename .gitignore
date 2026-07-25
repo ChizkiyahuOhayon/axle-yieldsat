@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+# data & artifacts (never commit)
+data/
+outputs/
+wandb/
+*.nc
+*.npy
+*.parquet
+*.zip
+*.tif
+.DS_Store
+.ipynb_checkpoints/

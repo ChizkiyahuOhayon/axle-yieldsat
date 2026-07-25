@@ -1,0 +1,27 @@
+# AXLE main config. Compose on the CLI, e.g.:
+#   python -m axle.train data=germany model=lstm loss=axle protocol=loyo
+defaults:
+  - data: germany
+  - model: lstm
+  - loss: axle
+  - protocol: cv10
+  - _self_
+
+seed: 0
+crop: null          # optional single-crop filter, e.g. "wheat"; null = all crops
+device: null        # null -> auto (cuda if available)
+num_workers: 4
+
+train:
+  epochs: 30
+  batch_size: 1024
+  lr: 1.0e-3
+  weight_decay: 0.0
+  grad_clip: 5.0
+  log_every: 5
+
+output_dir: outputs/${now:%Y%m%d-%H%M%S}
+wandb:
+  enabled: false
+  project: axle-yieldsat
+  entity: null

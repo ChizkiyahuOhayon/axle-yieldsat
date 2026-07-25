@@ -1,0 +1,5 @@
+name: tempcnn
+hidden: 64
+layers: 3
+kernel: 5
+dropout: 0.2
