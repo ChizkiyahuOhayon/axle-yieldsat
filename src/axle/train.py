@@ -79,6 +79,10 @@ def run(cfg: DictConfig) -> dict:
 
     pd.concat(all_preds, ignore_index=True).to_parquet(out / "predictions.parquet", index=False)
     summary = _summarise(fold_metrics)
+    summary["run"] = {  # self-describing so results collect without re-parsing the config
+        "data": cfg.data.name, "model": cfg.model.name, "loss": cfg.loss.name,
+        "protocol": cfg.protocol.name, "crop": cfg.crop or "all", "seed": cfg.seed,
+    }
     (out / "metrics.json").write_text(json.dumps(summary, indent=2))
     print("\n=== SUMMARY (mean +/- std across folds) ===")
     for k, v in summary.items():
