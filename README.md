@@ -69,12 +69,14 @@ signals (printing a target-exact integrity check), writes the cache, and deletes
 the large intermediate NetCDF:
 
 ```bash
-# start with Germany (smallest, ~7 GB NetCDF -> ~0.7 GB cache):
-python scripts/prepare.py --both /home/smbu/dy/nas/yieldsat/Both.zip \
-    --country Germany --out data/cache
+# from Both.zip (reads inner zips without full extraction):
+python scripts/prepare.py --both /path/Both.zip --country Germany --out data/cache
 
-# or all four countries at once:
-python scripts/prepare.py --both /home/smbu/dy/nas/yieldsat/Both.zip --out data/cache
+# OR from an already-extracted release dir holding Preprocessed/ and Raw/
+# (e.g. where YieldSAT.tar.gz was unpacked) -- same data, different packaging:
+python scripts/prepare.py --data-root /path/yieldsat --country Germany --out data/cache
+
+# drop --country to build all four countries at once.
 ```
 
 This writes `data/cache/<Country>/` with `sample.npy` (memmap), `meta.parquet`

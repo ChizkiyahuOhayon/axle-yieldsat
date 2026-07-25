@@ -33,9 +33,9 @@ from axle.data.reliability import COUNTRIES, extract_preprocessed_netcdf
 NC_NAME = "merge_s2-soil-dem-weather-coords.nc"
 
 
-def _prepare_from_both(both, country, out, nc_dir, keep_nc, bands):
-    print(f"=== {country}: extracting NetCDF from Both.zip ===")
-    nc = extract_preprocessed_netcdf(both, country, nc_dir)
+def _prepare_from_both(source, country, out, nc_dir, keep_nc, bands):
+    print(f"=== {country}: extracting NetCDF from {Path(source).name} ===")
+    nc = extract_preprocessed_netcdf(source, country, nc_dir)
     try:
         prepare_country(nc, str(Path(out) / country), both_zip=both, bands=bands)
     finally:
@@ -46,35 +46,40 @@ def _prepare_from_both(both, country, out, nc_dir, keep_nc, bands):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--both", help="path to Both.zip (recommended one-command mode)")
-    ap.add_argument("--country", help="single country; omit with --both to do all four")
+    ap.add_argument("--both", help="path to Both.zip (reads inner zips without full extraction)")
+    ap.add_argument("--data-root", help="dir holding extracted Preprocessed/ and Raw/ "
+                                        "(e.g. where YieldSAT.tar.gz was unpacked)")
+    ap.add_argument("--country", help="single country; omit to do all four")
     ap.add_argument("--out", required=True, help="output cache dir (parent when doing several countries)")
     ap.add_argument("--nc-dir", help="where to extract NetCDFs (default: <out>/_netcdf)")
     ap.add_argument("--keep-nc", action="store_true", help="keep the extracted NetCDF (default: delete it)")
     ap.add_argument("--bands", nargs="*", default=S2_BANDS, help="bands to cache (default: 12 S2)")
-    # alternative inputs when NetCDFs are already extracted
+    # alternative inputs when NetCDFs are already extracted to plain .nc files
     ap.add_argument("--netcdf", help="single-country NetCDF path (skips extraction)")
     ap.add_argument("--root", help="dir holding <Country>/merge_*.nc (skips extraction)")
     args = ap.parse_args()
 
+    # a "source" is either Both.zip (file) or an extracted dir with Preprocessed/+Raw/.
+    source = args.both or args.data_root
+
     if args.netcdf:                       # explicit single NetCDF
         country = args.country or _infer_country(args.netcdf)
         prepare_country(args.netcdf, str(Path(args.out) / country) if args.country else args.out,
-                        both_zip=args.both, bands=args.bands)
-    elif args.root:                       # pre-extracted tree
+                        both_zip=source, bands=args.bands)
+    elif args.root:                       # pre-extracted tree of plain .nc files
         for c in COUNTRIES:
             nc = Path(args.root) / c / NC_NAME
             if nc.exists():
-                prepare_country(str(nc), str(Path(args.out) / c), both_zip=args.both, bands=args.bands)
+                prepare_country(str(nc), str(Path(args.out) / c), both_zip=source, bands=args.bands)
             else:
                 print(f"[skip] {nc} not found")
-    elif args.both:                       # one-command from Both.zip (recommended)
+    elif source:                          # one command from Both.zip OR extracted dir (recommended)
         nc_dir = args.nc_dir or str(Path(args.out) / "_netcdf")
         countries = [args.country] if args.country else list(COUNTRIES)
         for c in countries:
-            _prepare_from_both(args.both, c, args.out, nc_dir, args.keep_nc, args.bands)
+            _prepare_from_both(source, c, args.out, nc_dir, args.keep_nc, args.bands)
     else:
-        ap.error("provide --both (recommended), or --netcdf, or --root")
+        ap.error("provide --both, --data-root, --netcdf, or --root")
 
 
 def _infer_country(path):

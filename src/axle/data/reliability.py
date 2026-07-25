@@ -73,26 +73,40 @@ class _StoredSlice(io.RawIOBase):
         super().close()
 
 
-def open_inner_zip(both_zip: str, country: str, release: str = "Raw") -> zipfile.ZipFile:
-    """Open ``{release}/{country}/{country}.zip`` nested inside ``Both.zip``."""
-    outer = zipfile.ZipFile(both_zip)
+def open_inner_zip(source: str, country: str, release: str = "Raw") -> zipfile.ZipFile:
+    """Open the per-country inner zip for ``release`` from either data packaging.
+
+    ``source`` may be:
+      * ``Both.zip`` (a file) -- reads the inner ``{release}/{country}/{country}.zip``
+        from within it via a seekable slice (no full extraction), or
+      * a directory that already holds the extracted ``{release}/{country}/{country}.zip``
+        (e.g. the folder where ``YieldSAT.tar.gz`` was unpacked).
+    """
+    p = Path(source)
+    if p.is_dir():
+        inner = p / release / country / f"{country}.zip"
+        if not inner.exists():
+            raise FileNotFoundError(f"{inner} not found (expected extracted {release} tree)")
+        return zipfile.ZipFile(inner)
+    outer = zipfile.ZipFile(source)
     info = outer.getinfo(f"{release}/{country}/{country}.zip")
     outer.fp.seek(info.header_offset)
     name_len, extra_len = struct.unpack("<HH", outer.fp.read(30)[26:30])
     data_off = info.header_offset + 30 + name_len + extra_len
-    return zipfile.ZipFile(_StoredSlice(both_zip, data_off, info.file_size))
+    return zipfile.ZipFile(_StoredSlice(source, data_off, info.file_size))
 
 
-def extract_preprocessed_netcdf(both_zip: str, country: str, dest_dir: str,
+def extract_preprocessed_netcdf(source: str, country: str, dest_dir: str,
                                 overwrite: bool = False, bufsize: int = 1 << 24) -> str:
-    """Extract ``Preprocessed/<country>/<country>.zip``'s NetCDF from ``Both.zip``.
+    """Extract a country's preprocessed NetCDF to ``dest_dir/<country>/merge_*.nc``.
 
-    Streams the (large) file to ``dest_dir/<country>/merge_*.nc`` without extracting
-    the whole 23 GB archive. Returns the path. Skips if present unless ``overwrite``.
+    ``source`` is either ``Both.zip`` or an extracted dir with ``Preprocessed/`` (see
+    :func:`open_inner_zip`). Streams the (large) file without extracting the whole
+    archive; returns the path; skips if present unless ``overwrite``.
     """
     import shutil
 
-    zf = open_inner_zip(both_zip, country, "Preprocessed")
+    zf = open_inner_zip(source, country, "Preprocessed")
     member = zf.infolist()[0]  # each Preprocessed inner zip holds exactly one .nc
     out_dir = Path(dest_dir) / country
     out_dir.mkdir(parents=True, exist_ok=True)
