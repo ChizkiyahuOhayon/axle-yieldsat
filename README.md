@@ -1,5 +1,7 @@
 # AXLE — Acquisition-anchored Label noise for robust dense crop-yield regression
 
+[![CI](https://github.com/ChizkiyahuOhayon/axle-yieldsat/actions/workflows/ci.yml/badge.svg)](https://github.com/ChizkiyahuOhayon/axle-yieldsat/actions/workflows/ci.yml)
+
 > **Trust the Instrument: Acquisition-Anchored Label Noise for Robust Dense Yield Regression**
 > Reference implementation on the [YieldSAT](https://yieldsat.github.io/) benchmark.
 
