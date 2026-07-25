@@ -43,3 +43,11 @@ def test_pipeline_runs_and_writes(synth_cache, tmp_path, loss):
     assert len(preds) > 0 and {"target", "prediction", "fold"} <= set(preds.columns)
     if loss in ("hetero", "axle"):  # variance losses report calibration
         assert np.isfinite(summary["pixel_picp90_mean"])
+
+
+def test_batch_larger_than_fold_does_not_crash(synth_cache, tmp_path):
+    """Regression: a batch_size exceeding the fold size must not divide by zero."""
+    cfg = _cfg(synth_cache, "axle", tmp_path / "big_batch")
+    cfg.train.batch_size = 100000            # far larger than any fold
+    summary = run(cfg)
+    assert np.isfinite(summary["pixel_r2_mean"])

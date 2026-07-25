@@ -40,7 +40,10 @@ def train_fold(
     params = list(model.parameters()) + list(loss_fn.parameters())  # AXLE grade-scale lives in the loss
     opt = torch.optim.Adam(params, lr=lr, weight_decay=weight_decay)
 
-    tl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, pin_memory=True, num_workers=num_workers, drop_last=True)
+    # drop_last only when it still leaves a batch (BatchNorm needs >1 sample; small
+    # folds must not end up with zero batches).
+    drop_last = len(train_ds) >= 2 * batch_size
+    tl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, pin_memory=True, num_workers=num_workers, drop_last=drop_last)
     vl = DataLoader(val_ds, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=num_workers)
 
     best_r2, best_df, best_metrics = -np.inf, None, {}
@@ -58,7 +61,7 @@ def train_fold(
         val_df = _validate(model, loss_fn, vl, val_ds, device)
         m = all_metrics(val_df)
         if log_every and (epoch % log_every == 0 or epoch == epochs - 1):
-            print(f"  epoch {epoch:3d} | train_loss {running/len(tl):.4f} | "
+            print(f"  epoch {epoch:3d} | train_loss {running/max(len(tl),1):.4f} | "
                   f"pixel_r2 {m['pixel_r2']:.4f} | field_r2 {m['field_r2']:.4f}")
         if m["field_r2"] > best_r2:
             best_r2, best_df, best_metrics = m["field_r2"], val_df, m

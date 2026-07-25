@@ -23,6 +23,6 @@ jobs:
         run: pytest -q
       - name: CLI end-to-end (the documented command, on synthetic data)
         run: |
-          python scripts/make_synthetic_cache.py --out data/cache/Synthetic --fields 24 --pixels-per-field 60
+          python scripts/make_synthetic_cache.py --out data/cache/Synthetic --fields 60 --pixels-per-field 120
           python -m axle.train data=synthetic model=lstm loss=axle protocol=cv10 \
-            protocol.n_splits=3 train.epochs=2 num_workers=0 hydra.run.dir=outputs/ci
+            protocol.n_splits=3 train.epochs=2 train.batch_size=512 num_workers=0 hydra.run.dir=outputs/ci
