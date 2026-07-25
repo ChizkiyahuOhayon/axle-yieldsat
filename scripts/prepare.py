@@ -36,12 +36,10 @@ NC_NAME = "merge_s2-soil-dem-weather-coords.nc"
 def _prepare_from_both(source, country, out, nc_dir, keep_nc, bands):
     print(f"=== {country}: extracting NetCDF from {Path(source).name} ===")
     nc = extract_preprocessed_netcdf(source, country, nc_dir)
-    try:
-        prepare_country(nc, str(Path(out) / country), both_zip=both, bands=bands)
-    finally:
-        if not keep_nc:
-            Path(nc).unlink(missing_ok=True)
-            print(f"[cleanup] removed intermediate {nc}")
+    prepare_country(nc, str(Path(out) / country), both_zip=source, bands=bands)
+    if not keep_nc:  # only after a successful build, so a crash leaves it cached for a fast re-run
+        Path(nc).unlink(missing_ok=True)
+        print(f"[cleanup] removed intermediate {nc}")
 
 
 def main():
