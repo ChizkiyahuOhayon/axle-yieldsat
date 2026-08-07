@@ -54,6 +54,12 @@ this integrity check every run. The ~1% of pixels without a signal fall back to
 ## Local vs. server
 
 The Preprocessed NetCDFs are large (Argentina 63 GB, Brazil 50 GB, Uruguay 26 GB,
-Germany 7 GB). Prepare them on the server (`/home/smbu/dy/nas/yieldsat`); a laptop
-can handle Germany. `sample.npy` for the 12 S2 bands is ~6 GB (Argentina) down to
-0.7 GB (Germany).
+Germany 7 GB), so prepare them on a machine with room to spare; a laptop can handle
+Germany. `sample.npy` for the 12 S2 bands is ~6 GB (Argentina) down to 0.7 GB
+(Germany).
+
+`prepare.py` takes either packaging: `--both Both.zip`, or `--data-root <dir>` where
+the release was unpacked into `{Preprocessed,Raw}/<Country>/<Country>.zip`. Point
+`--nc-dir` at a disk that can hold one country's NetCDF; the cache itself should live
+on **local** storage, since training reads `sample.npy` at random and a network mount
+will dominate the step time.
