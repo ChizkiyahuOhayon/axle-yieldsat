@@ -22,6 +22,24 @@ import pandas as pd
 KEYS = ["data", "model", "loss", "protocol", "crop", "members"]
 
 
+def to_markdown(df: pd.DataFrame, floatfmt: str = "{:.4f}") -> str:
+    """Render a markdown table without pandas' optional ``tabulate`` dependency.
+
+    ``DataFrame.to_markdown`` needs tabulate, which is not worth a hard dependency (and
+    its absence used to crash this script *after* the csv was already written).
+    """
+    def cell(v):
+        return floatfmt.format(v) if isinstance(v, float) else str(v)
+
+    head = list(df.columns)
+    rows = [[cell(v) for v in row] for row in df.itertuples(index=False)]
+    width = [max(len(h), *(len(r[i]) for r in rows)) if rows else len(h)
+             for i, h in enumerate(head)]
+    line = lambda cells: "| " + " | ".join(c.ljust(w) for c, w in zip(cells, width)) + " |"
+    return "\n".join([line(head), "|" + "|".join("-" * (w + 2) for w in width) + "|",
+                      *(line(r) for r in rows)]) + "\n"
+
+
 def load(dirs: list[str]) -> tuple[pd.DataFrame, int]:
     rows, dropped = [], 0
     for d in dirs:
@@ -66,7 +84,7 @@ def main():
     print(table.to_string(index=False))
 
     df.to_csv(f"{args.out}.csv", index=False)
-    Path(f"{args.out}.md").write_text(table.to_markdown(index=False))
+    Path(f"{args.out}.md").write_text(to_markdown(table))
     if mean_col in df:
         piv = df.pivot_table(index=["data", "model", "crop", "members", "loss"],
                              columns="protocol", values=mean_col)
