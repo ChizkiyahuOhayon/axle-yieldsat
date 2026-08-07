@@ -97,6 +97,10 @@ Three pieces make it trainable:
    item, carrying `(row, col)` and its field's `d_f`. Tiling keeps the dense
    `k × k` Cholesky exact and cheap while `tile ≫ ℓ`, so almost no real correlation
    is cut; ragged blocks are padded and the padding is neutralised to identity.
+   Blocks below `min_pixels` (default 32) are dropped, which on Germany wheat costs
+   **2.1% of pixels** (2,028 patches covering 300,285 of 306,843 px, mean 148 px per
+   patch) — measured, not assumed, so the M2-vs-M1 comparison is not a
+   less-training-data comparison. `min_pixels=8` raises coverage to 99.8% if needed.
 3. **Batched solve** (`losses/spatial.py`) — a batched Cholesky over `(B, K, K)`.
    At `K ≤ 256` this is ~10⁹ flops per step, well below the backbone's cost, so the
    conjugate-gradient + Lanczos path the plan sketched is not needed at this patch
