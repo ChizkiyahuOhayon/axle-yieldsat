@@ -53,13 +53,21 @@ Independent down-weighting cannot remove a coherent stripe. M2 gives the noise a
 field-patch covariance
 
 ```
-Σ = diag(σ²_m) + D^½ R D^½,   D = diag(σ²_acq),   R = ρ·exp(−dist_{d_f}/ℓ) + (1−ρ)·I
+Σ = diag(σ²_m) + D^½ R D^½,   D = diag(σ²_acq)
+R = ρ·exp(−Δ∥/ℓ∥ − Δ⊥/ℓ⊥) + (1−ρ)·I
 ```
 
 and trains with the correlated NLL `½ rᵀΣ⁻¹r + ½ log|Σ|`, which whitens (de-stripes)
-the residual. `dist_{d_f}` is the distance **along the harvester direction** `d_f`;
-`ρ ∈ (0,1)` is the share of acquisition noise that is correlated and `ℓ` the
-correlation length in pixels. Both are learned in unconstrained space.
+the residual. `Δ∥` and `Δ⊥` are the pixel separation resolved **along** the harvester
+direction `d_f` and **across** it; `ρ ∈ (0,1)` is the share of acquisition noise that
+is correlated. All three parameters are learned in unconstrained space.
+
+The **anisotropy carries the physics** and is not cosmetic: one error draw is smeared
+down a pass (`ℓ∥` long), while the next pass is a fresh draw (`ℓ⊥` ≈ one swath width).
+A kernel using only the along-track projection would declare two pixels in *different*
+passes at the same along-track position perfectly correlated — the opposite of how a
+combine works. `R` is a product of two Matern-1/2 kernels, hence positive definite by
+the Schur product theorem.
 
 **M2 is a strict superset of M1**: at `ρ = 0` the matrix is diagonal and the loss is
 exactly `axle`, so M2-vs-M1 is a one-parameter ablation rather than a different model

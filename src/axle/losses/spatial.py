@@ -29,6 +29,11 @@ from .objectives import AXLE
 _EPS = 1e-6
 
 
+def _inv_softplus(x: float) -> float:
+    """Value whose softplus is ``x`` -- for initialising positive parameters."""
+    return math.log(math.expm1(x))
+
+
 def exponential_correlation(coords: torch.Tensor, direction: torch.Tensor, ell: torch.Tensor) -> torch.Tensor:
     r"""Matern-1/2 correlation along ``direction`` with length ``ell``.
 
@@ -69,23 +74,32 @@ def correlated_nll(y, mu, cov) -> torch.Tensor:
     return 0.5 * (quad + logdet) / y.numel()
 
 
-def pairwise_distance(coords: torch.Tensor, direction: torch.Tensor) -> torch.Tensor:
-    r"""Batched pixel distances: along-track where :math:`d_f` is known, isotropic elsewhere.
+def pairwise_offsets(coords: torch.Tensor, direction: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    r"""Split pixel separations into along-track and across-track components.
+
+    The split is what makes the kernel *anisotropic*, and the anisotropy is the whole
+    physical claim: error is coherent down a harvester pass and independent between
+    passes. Using the along-track projection alone would say two pixels in different
+    passes at the same along-track position are perfectly correlated -- the opposite of
+    how a combine works.
 
     Args:
         coords:    (B, K, 2) pixel positions.
         direction: (B, 2) unit travel vectors; an all-zero row means "no stripe
-                   detected for this field" and falls back to the 2-D Euclidean
-                   distance, i.e. an isotropic kernel.
+                   resolved for this field", and the pair collapses to (Euclidean, 0),
+                   i.e. an isotropic kernel with the along-track length scale.
     Returns:
-        (B, K, K) non-negative distances.
+        ``(along, across)``, each (B, K, K) and non-negative.
     """
-    d = direction / (direction.norm(dim=-1, keepdim=True) + _EPS)   # (B, 2)
-    proj = torch.einsum("bkc,bc->bk", coords, d)                    # (B, K) along-track
-    along = (proj[:, :, None] - proj[:, None, :]).abs()
-    iso = torch.cdist(coords, coords)
+    d = direction / (direction.norm(dim=-1, keepdim=True) + _EPS)      # (B, 2)
+    perp = torch.stack([-d[:, 1], d[:, 0]], dim=-1)                    # (B, 2) across-track
+    delta = coords[:, :, None, :] - coords[:, None, :, :]              # (B, K, K, 2)
+    along = torch.einsum("bijc,bc->bij", delta, d).abs()
+    across = torch.einsum("bijc,bc->bij", delta, perp).abs()
+
     has_dir = (direction.norm(dim=-1) > _EPS)[:, None, None]
-    return torch.where(has_dir, along, iso)
+    iso = torch.linalg.vector_norm(delta, dim=-1)
+    return torch.where(has_dir, along, iso), torch.where(has_dir, across, torch.zeros_like(across))
 
 
 class SpatialAXLE(AXLE):
@@ -94,14 +108,21 @@ class SpatialAXLE(AXLE):
     Per patch the label-noise covariance is
 
     .. math::  \Sigma = \mathrm{diag}(\sigma^2_{m}) + D^{1/2}\,R\,D^{1/2},\quad
-               R = \rho\,e^{-\mathrm{dist}/\ell} + (1-\rho) I,\quad D=\mathrm{diag}(\sigma^2_{a}),
+               R = \rho\,e^{-\frac{\Delta_\parallel}{\ell_\parallel}-\frac{\Delta_\perp}{\ell_\perp}}
+                   + (1-\rho) I,\quad D=\mathrm{diag}(\sigma^2_{a}),
 
     with the *same* anchored :math:`\sigma^2_{a}` as M1 (supplied by the harvester,
     scaled by the learnable grade factor :math:`g(q_f)`). Only the off-diagonal is new:
     at :math:`\rho=0` the matrix is diagonal and the objective is exactly
     :class:`~axle.losses.objectives.AXLE`, which makes M2-vs-M1 a one-parameter ablation
-    rather than a different model. :math:`\rho` (mixing) and :math:`\ell` (correlation
-    length, in pixels) are learned in unconstrained space.
+    rather than a different model.
+
+    :math:`R` is a *product* of two Matern-1/2 kernels -- along the pass
+    (:math:`\ell_\parallel`, long) and across it (:math:`\ell_\perp`, about one swath
+    width) -- which is positive definite by the Schur product theorem. The anisotropy
+    encodes the mechanism: one error draw is smeared down a pass, and the next pass is
+    a fresh draw. :math:`\rho, \ell_\parallel, \ell_\perp` are learned in unconstrained
+    space.
 
     Padded pixels are given an identity row/column and a zero residual, so they add
     nothing to either the quadratic form or the log-determinant.
@@ -114,23 +135,40 @@ class SpatialAXLE(AXLE):
     requires_patches = True
 
     def __init__(self, n_grades: int = 3, learn_grade_scale: bool = True,
-                 ell_init: float = 8.0, rho_init: float = 0.7, learn_kernel: bool = True,
-                 jitter: float = 1e-4):
+                 ell_init: float = 8.0, ell_across_init: float = 3.0,
+                 rho_init: float = 0.7, learn_kernel: bool = True, jitter: float = 1e-4):
         super().__init__(n_grades=n_grades, learn_grade_scale=learn_grade_scale)
-        # store in unconstrained space: ell = softplus(raw_ell), rho = sigmoid(raw_rho)
-        raw_ell = math.log(math.expm1(ell_init))
-        raw_rho = math.log(rho_init / (1.0 - rho_init))
-        self.raw_ell = nn.Parameter(torch.tensor(raw_ell), requires_grad=learn_kernel)
-        self.raw_rho = nn.Parameter(torch.tensor(raw_rho), requires_grad=learn_kernel)
+        # store in unconstrained space: ell = softplus(raw), rho = sigmoid(raw)
+        self.raw_ell = nn.Parameter(torch.tensor(_inv_softplus(ell_init)), requires_grad=learn_kernel)
+        self.raw_ell_across = nn.Parameter(torch.tensor(_inv_softplus(ell_across_init)),
+                                           requires_grad=learn_kernel)
+        self.raw_rho = nn.Parameter(torch.tensor(math.log(rho_init / (1.0 - rho_init))),
+                                    requires_grad=learn_kernel)
         self.jitter = float(jitter)
 
     @property
     def ell(self) -> torch.Tensor:
+        """Correlation length along the pass, in pixels."""
         return F.softplus(self.raw_ell) + _EPS
+
+    @property
+    def ell_across(self) -> torch.Tensor:
+        """Correlation length across passes -- about one swath width."""
+        return F.softplus(self.raw_ell_across) + _EPS
 
     @property
     def rho(self) -> torch.Tensor:
         return torch.sigmoid(self.raw_rho)
+
+    @torch.no_grad()
+    def diagnostics(self) -> dict:
+        """M1's grade scales plus the learned swath geometry.
+
+        ``ell_across`` is a falsifiable prediction: it should settle near one harvester
+        swath width, and ``rho`` near 0 would say the correlation term earned nothing.
+        """
+        return {**super().diagnostics(), "rho": float(self.rho),
+                "ell_along": float(self.ell), "ell_across": float(self.ell_across)}
 
     def covariance(self, pred, batch) -> torch.Tensor:
         """Assemble (B, K, K) :math:`\\Sigma`, with padded pixels neutralised to identity."""
@@ -138,9 +176,10 @@ class SpatialAXLE(AXLE):
         sigma2_acq = batch["sigma2_acq"] * batch["has_rel"] * self.grade_scale(batch["quality_idx"])
         keep = batch["pix_mask"]                                              # (B, K)
 
-        dist = pairwise_distance(batch["coords"], batch["direction"])
-        eye = torch.eye(dist.shape[-1], device=dist.device, dtype=dist.dtype)
-        r = self.rho * torch.exp(-dist / self.ell) + (1.0 - self.rho) * eye
+        along, across = pairwise_offsets(batch["coords"], batch["direction"])
+        eye = torch.eye(along.shape[-1], device=along.device, dtype=along.dtype)
+        decay = torch.exp(-along / self.ell - across / self.ell_across)
+        r = self.rho * decay + (1.0 - self.rho) * eye
 
         d = torch.sqrt(sigma2_acq + _EPS)
         cov = d[:, :, None] * r * d[:, None, :]

@@ -107,3 +107,13 @@ class AXLE(nn.Module):
 
     def predictive_variance(self, pred, batch):
         return self._total_var(pred, batch)
+
+    @torch.no_grad()
+    def diagnostics(self) -> dict:
+        """Learned parameters worth reporting next to the metrics.
+
+        ``g`` says how much the harvester's own reliability grades scale the supplied
+        variance: g(Bad) > g(Good) means the model *agrees* with the grading.
+        """
+        g = F.softplus(self.log_g) + _EPS
+        return {f"g_{name}": float(v) for name, v in zip(("good", "average", "bad"), g)}

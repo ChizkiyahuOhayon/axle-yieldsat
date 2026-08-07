@@ -70,7 +70,7 @@ def train_fold(
     independently initialised.
     """
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    dfs = []
+    dfs, diags = [], []
     for m in range(members):
         if members > 1:
             set_seed(seed + m)  # decorrelate members (init + shuffling)
@@ -82,8 +82,21 @@ def train_fold(
                               num_workers=num_workers, device=device, grad_clip=grad_clip,
                               log_every=log_every)
         dfs.append(df)
+        diags.append(getattr(loss_fn, "diagnostics", dict)())
     val_df = dfs[0] if members == 1 else _aggregate_members(dfs)
-    return val_df, all_metrics(val_df)
+    metrics = all_metrics(val_df)
+    metrics.update(_mean_diagnostics(diags))   # learned loss parameters, averaged over members
+    return val_df, metrics
+
+
+def _mean_diagnostics(diags: list[dict]) -> dict:
+    """Average the losses' learned parameters (AXLE grade scales, M2 swath geometry).
+
+    These are end-of-training values, not best-epoch ones -- they describe the fitted
+    noise model, so they are reported alongside the metrics rather than selected on.
+    """
+    keys = set().union(*diags) if diags else set()
+    return {k: float(np.mean([d[k] for d in diags if k in d])) for k in sorted(keys)}
 
 
 def _train_single(model, loss_fn, train_ds, val_ds, *, epochs, batch_size, lr,

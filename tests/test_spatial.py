@@ -13,7 +13,7 @@ import torch
 from axle.losses import build_loss
 from axle.losses.objectives import AXLE
 from axle.losses.spatial import (SpatialAXLE, correlated_nll, exponential_correlation,
-                                 pairwise_distance, patch_covariance)
+                                 pairwise_offsets, patch_covariance)
 
 
 def _patch_batch(b=3, k=7, seed=0, direction=(1.0, 0.0), sizes=None):
@@ -154,12 +154,37 @@ def test_kernel_parameters_receive_gradients():
     assert torch.isfinite(pred["mu"].grad).all()
 
 
-def test_zero_direction_falls_back_to_isotropic_distance():
+def test_offsets_split_along_and_across_track():
     coords = torch.tensor([[[0.0, 0.0], [3.0, 4.0]]])
-    iso = pairwise_distance(coords, torch.zeros(1, 2))
-    assert iso[0, 0, 1] == pytest.approx(5.0)                      # Euclidean
-    along = pairwise_distance(coords, torch.tensor([[1.0, 0.0]]))
-    assert along[0, 0, 1] == pytest.approx(3.0)                    # projection on d_f only
+    along, across = pairwise_offsets(coords, torch.tensor([[1.0, 0.0]]))
+    assert along[0, 0, 1] == pytest.approx(3.0)      # component on d_f
+    assert across[0, 0, 1] == pytest.approx(4.0)     # component on d_f-perpendicular
+
+    iso_along, iso_across = pairwise_offsets(coords, torch.zeros(1, 2))
+    assert iso_along[0, 0, 1] == pytest.approx(5.0)  # no d_f -> Euclidean ...
+    assert iso_across[0, 0, 1] == pytest.approx(0.0)  # ... on a single length scale
+
+
+def test_neighbouring_passes_are_not_treated_as_one():
+    """The physical claim: coherent down a pass, near-independent across passes.
+
+    Two pixels the same distance apart must correlate far less when that distance is
+    across the passes than when it is along one -- otherwise the kernel is isotropic
+    in disguise and M2 buys nothing over M1.
+    """
+    loss = build_loss("axle_spatial", ell_init=20.0, ell_across_init=2.0, rho_init=0.99)
+    coords = torch.tensor([[[0.0, 0.0], [10.0, 0.0], [0.0, 10.0]]])   # d_f = (1,0)
+    batch = {
+        "coords": coords, "direction": torch.tensor([[1.0, 0.0]]),
+        "sigma2_acq": torch.ones(1, 3), "has_rel": torch.ones(1, 3),
+        "quality_idx": torch.zeros(1, 3, dtype=torch.long), "pix_mask": torch.ones(1, 3),
+        "target": torch.zeros(1, 3),
+    }
+    cov = loss.covariance({"logvar": torch.full((1, 3), -10.0)}, batch)
+    corr = cov / torch.sqrt(torch.diagonal(cov, dim1=-2, dim2=-1))[:, :, None] \
+               / torch.sqrt(torch.diagonal(cov, dim1=-2, dim2=-1))[:, None, :]
+    assert corr[0, 0, 1] > 0.5, "10 px down the same pass should stay correlated"
+    assert corr[0, 0, 2] < 0.05, "10 px across passes should be nearly independent"
 
 
 def test_spatial_loss_demands_patches():
