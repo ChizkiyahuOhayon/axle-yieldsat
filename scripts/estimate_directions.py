@@ -29,6 +29,10 @@ def main() -> None:
 
     for cache in args.cache:
         cache = Path(cache)
+        if not (cache / "meta.parquet").exists():
+            # tolerate globs like data/cache/*/ that also match prepare's _netcdf scratch dir
+            print(f"[{cache.name}] no meta.parquet -- not a prepared cache, skipping")
+            continue
         meta = pd.read_parquet(cache / "meta.parquet")
         d = estimate_field_directions(meta, signal=args.signal,
                                       min_strength=args.min_strength, n_angles=args.angles)
