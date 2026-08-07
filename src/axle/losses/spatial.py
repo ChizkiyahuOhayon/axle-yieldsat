@@ -185,10 +185,14 @@ class SpatialAXLE(AXLE):
 
     @torch.no_grad()
     def diagnostics(self) -> dict:
-        """M1's grade scales plus the learned swath geometry.
+        """M1's grade scales plus the fitted swath geometry.
 
-        ``ell_across`` is a falsifiable prediction: it should settle near one harvester
-        swath width, and ``rho`` near 0 would say the correlation term earned nothing.
+        ``rho`` is the one to read: it is well identified (0.83-0.87 across a 12x sweep
+        of the length-scale initialisation) and ``rho`` near 0 would say the correlation
+        term earned nothing. The length scales are *not* identifiable in practice -- the
+        likelihood is nearly flat in them, so they drift only slightly from their
+        initial values and should be treated as hyper-parameters, not measurements
+        (see ``docs/EXPERIMENTS.md``, Run 002).
         """
         return {**super().diagnostics(), "rho": float(self.rho),
                 "ell_along": float(self.ell), "ell_across": float(self.ell_across)}

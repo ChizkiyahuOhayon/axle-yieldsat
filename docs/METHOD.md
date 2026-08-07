@@ -69,6 +69,16 @@ passes at the same along-track position perfectly correlated — the opposite of
 combine works. `R` is a product of two Matern-1/2 kernels, hence positive definite by
 the Schur product theorem.
 
+**What is and is not identifiable.** `ρ` is well determined (0.83–0.87 across a 12×
+sweep of the length-scale initialisation) and is the parameter to report: it says how
+much of the acquisition variance the fit puts in the correlated block, and `ρ → 0`
+would collapse M2 back to M1. The length scales are **not** identifiable — the
+likelihood is nearly flat in them, so they barely move from their initial values, and
+on a planted 4-pixel swath `ℓ⊥` ends at 1.4 / 3.1 / 11.0 from inits of 1 / 3 / 12
+(`docs/EXPERIMENTS.md`, Run 002). So AXLE must **not** be claimed to recover the swath
+width. The compensation is that accuracy is insensitive to them (pixel R² 0.804 /
+0.801 / 0.794 over that same 12× range), i.e. M2 needs no length-scale tuning.
+
 **M2 is a strict superset of M1**: at `ρ = 0` the matrix is diagonal and the loss is
 exactly `axle`, so M2-vs-M1 is a one-parameter ablation rather than a different model
 (asserted in `tests/test_spatial.py::test_rho_zero_reduces_exactly_to_m1`).

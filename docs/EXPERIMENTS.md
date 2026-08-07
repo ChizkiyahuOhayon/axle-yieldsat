@@ -59,8 +59,34 @@ too thin for a stable field R².
 | `axle` (M1) | 0.546 | 0.66 / 0.38 / 0.60 | 0.564 | 0.671 | 0.900 |
 | **`axle_spatial` (M2)** | **0.793** | 0.80 / 0.81 / 0.77 | **0.399** | **0.304** | 0.822 |
 
-Learned noise model (M2): `rho` **0.849**, `ell_along` **8.87 px**, `ell_across`
+Fitted noise model (M2): `rho` **0.849**, `ell_along` **8.87 px**, `ell_across`
 **3.14 px**.
+
+### Are the kernel parameters identifiable? (init control)
+
+`ell_across` ending at 3.14 px next to a planted swath width of 4.0 px looks like
+recovery — but its *initial* value was 3.0. Re-running seed 0 from three
+initialisations settles it:
+
+| `ell_across_init` | fitted | pixel R² |
+|---|---|---|
+| 1.0 | 1.41 | 0.804 |
+| 3.0 | 3.15 | 0.801 |
+| 12.0 | 10.99 | 0.794 |
+
+Each run drifts *toward* 4.0 (1.0 rises, 12.0 falls) and none arrives. The likelihood
+is close to flat in the length scales, so **`ell_across` is not identifiable here and
+must be reported as a hyper-parameter, not a measurement** — no claim that AXLE
+"recovers the swath width". `ell_along` likewise sat at 8.8–9.2 from an init of 8.0.
+
+Two things survive this:
+
+- **`rho` is well identified**: 0.873 / 0.852 / 0.833 across the same 12x sweep. The
+  share of acquisition variance placed in the correlated block is a stable, high
+  number no matter where the kernel starts.
+- **The gain is insensitive to the length scale**: pixel R² 0.804 / 0.801 / 0.794 over
+  a 12x range. M2 needs no length-scale tuning, which is worth stating positively —
+  but it is the same fact as the non-identifiability, not a separate result.
 
 ### Reading
 
