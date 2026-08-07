@@ -187,6 +187,21 @@ def test_neighbouring_passes_are_not_treated_as_one():
     assert corr[0, 0, 2] < 0.05, "10 px across passes should be nearly independent"
 
 
+def test_degenerate_patch_survives_via_jitter():
+    """Duplicate coordinates make Sigma singular; the loss must recover, not crash."""
+    k = 5
+    loss = build_loss("axle_spatial", rho_init=0.999, ell_init=50.0, ell_across_init=50.0,
+                      learn_kernel=False, jitter=0.0)
+    batch = {
+        "target": torch.zeros(1, k), "sigma2_acq": torch.ones(1, k), "has_rel": torch.ones(1, k),
+        "quality_idx": torch.zeros(1, k, dtype=torch.long), "pix_mask": torch.ones(1, k),
+        "coords": torch.zeros(1, k, 2),                      # every pixel at the same place
+        "direction": torch.tensor([[1.0, 0.0]]),
+    }
+    out = loss({"mu": torch.zeros(1, k), "logvar": torch.full((1, k), -20.0)}, batch)
+    assert torch.isfinite(out)
+
+
 def test_spatial_loss_demands_patches():
     """Silently averaging over a bag of pixels would be wrong, so it must raise."""
     loss = build_loss("axle_spatial")

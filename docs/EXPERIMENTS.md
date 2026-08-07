@@ -5,6 +5,54 @@ exact command, full results, and reading. Newest first.
 
 ---
 
+## Run 002 — AXLE-M2 wiring: is the swath geometry actually there?
+
+- **Date**: 2026-08-07
+- **Env**: laptop (macOS, CPU/MPS, Python 3.14, torch 2.13) — a correctness and
+  mechanism check, not a benchmark run. Commit `50a061e`.
+- **Data**: `data/cache/Germany` (609,645 px, 299 fields) + a synthetic cache with a
+  *planted* swath (`write_synthetic(..., swath=4.0)`).
+
+### Does the support-count raster carry a harvester direction?
+
+```bash
+python scripts/estimate_directions.py data/cache/Germany
+```
+
+Calibrated against a null that permutes `n_i` *within* each field — same geometry,
+same marginal, no stripes:
+
+| | median strength | p90 | fields ≥ 0.10 |
+|---|---|---|---|
+| real `n_i` | **0.131** | 0.197 | 76.3% |
+| shuffled `n_i` (null) | 0.062 | 0.101 | 10.7% |
+
+- Real beats its own null in **96.0% of 299 fields**; median ratio **1.97×**.
+- Estimated angles spread fairly evenly over [0°, 180°) (26–44 fields per 30° bin),
+  i.e. this is per-field geometry, not one global artifact.
+- On the planted synthetic swath: **100%** of fields resolved, median strength 0.92,
+  angle error ≤ 5°.
+
+**Reading.** The stripe orientation is a real signal but a *modest* one — ~13% of the
+`n_i` variance. That is enough to anchor a covariance and not enough to justify
+claiming every field has a resolvable direction, so the default threshold is set at
+the null's p90 (≈0.10, ~10% false positives) and the remaining 24% of fields stay
+isotropic. Worth reporting honestly in the paper: M2 is anchored where the geometry is
+visible and degrades to M1-with-isotropic-correlation where it is not.
+
+### Wiring verification (Germany wheat, LOYO, TempCNN, 2 epochs)
+
+Not a result — a plumbing check that the patch path runs on real data: 7 folds,
+~1,900 patches/fold, correlated NLL descending (6.46 → 1.48 in one epoch),
+PICP@90 ≈ 0.81, metrics and predictions written. 1,382 s on laptop CPU.
+
+### Next
+
+Mechanism test on the planted-swath synthetic (M2 vs M1 vs MSE, 3 seeds) — running;
+numbers to be appended here.
+
+---
+
 ## Run 001 — Germany wheat, loss ablation + Deep Ensemble
 
 - **Date**: 2026-07-26

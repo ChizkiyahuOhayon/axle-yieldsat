@@ -1,15 +1,16 @@
-r"""AXLE-M2 (experimental): swath-correlated Gaussian NLL over a field patch.
+r"""AXLE-M2: swath-correlated Gaussian NLL over a field patch.
 
-Harvester error is coherently striped along the machine's travel direction, so
-the acquisition noise is *not* per-pixel independent. M2 models a field patch's
-label noise with the covariance
+Harvester error is coherently smeared *down* a machine pass and redrawn on the next
+one, so the acquisition noise is neither per-pixel independent nor isotropic. M2 gives
+a field patch's label noise the covariance
 
-.. math::  \Sigma = \mathrm{diag}(\sigma^2_{m}) + D^{1/2} R(\rho,\ell,d_f) D^{1/2},
+.. math::  \Sigma = \mathrm{diag}(\sigma^2_{m}) + D^{1/2} R\, D^{1/2},
            \qquad D=\mathrm{diag}(\sigma^2_{a}),
 
-where :math:`R` is a Matern-1/2 (exponential) correlation along the harvester
-direction :math:`d_f`, and trains with the correlated NLL
-:math:`\tfrac12 (y-\mu)^\top\Sigma^{-1}(y-\mu) + \tfrac12\log|\Sigma|`.
+with :math:`R` an anisotropic Matern-1/2 correlation -- long along the harvester
+direction :math:`d_f`, short across it -- and trains with the correlated NLL
+:math:`\tfrac12 (y-\mu)^\top\Sigma^{-1}(y-\mu) + \tfrac12\log|\Sigma|`, which whitens
+the stripe out of the residual.
 
 The single-patch helpers below are the reference implementation (dense, readable,
 unit-tested). :class:`SpatialAXLE` is the batched training objective that consumes
@@ -32,6 +33,28 @@ _EPS = 1e-6
 def _inv_softplus(x: float) -> float:
     """Value whose softplus is ``x`` -- for initialising positive parameters."""
     return math.log(math.expm1(x))
+
+
+def _safe_cholesky(cov: torch.Tensor, tries: int = 4) -> torch.Tensor:
+    """Cholesky with escalating jitter, so one ill-conditioned patch cannot kill a sweep.
+
+    A near-singular patch is rare but reachable -- a strongly correlated block of
+    near-duplicate coordinates -- and an uncaught failure mid-grid costs hours. Each
+    retry adds 10x more jitter, scaled to the matrix, and the last one raises with the
+    diagnosis rather than silently returning something wrong.
+    """
+    scale = torch.diagonal(cov, dim1=-2, dim2=-1).mean().detach().clamp_min(_EPS)
+    eye = torch.eye(cov.shape[-1], device=cov.device, dtype=cov.dtype)
+    for attempt in range(tries):
+        chol, info = torch.linalg.cholesky_ex(cov)
+        if not info.any():
+            return chol
+        cov = cov + (10.0 ** attempt) * 1e-5 * scale * eye
+    raise torch.linalg.LinAlgError(
+        f"patch covariance not positive definite after {tries} jitter escalations "
+        f"({int(info.count_nonzero())}/{cov.shape[0]} patches); check for duplicate "
+        "pixel coordinates or a degenerate sigma2_acq"
+    )
 
 
 def exponential_correlation(coords: torch.Tensor, direction: torch.Tensor, ell: torch.Tensor) -> torch.Tensor:
@@ -196,7 +219,7 @@ class SpatialAXLE(AXLE):
         keep = batch["pix_mask"]
         resid = ((batch["target"] - pred["mu"]) * keep).unsqueeze(-1)          # (B, K, 1)
         cov = self.covariance(pred, batch)
-        chol = torch.linalg.cholesky(cov)
+        chol = _safe_cholesky(cov)
         quad = (resid * torch.cholesky_solve(resid, chol)).sum()
         logdet = 2.0 * torch.log(torch.diagonal(chol, dim1=-2, dim2=-1)).sum()
         return 0.5 * (quad + logdet) / keep.sum().clamp_min(1.0)
