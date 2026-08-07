@@ -1,18 +1,26 @@
 # @package _global_
-# The paper's strongest baseline (Deep Ensemble) vs a reliability-aware DE (loss=axle),
-# under both shift protocols.
+# The paper's strongest baseline (Deep Ensemble) vs a reliability-aware DE (loss=axle
+# / axle_spatial), under both shift protocols. This is the "stand on DE's shoulders"
+# test the research plan makes the go/no-go depend on.
 #   python -m axle.train -m +experiment=deep_ensemble
+#
+# Backbone is the **transformer**, not the LSTM. Run 001 ran this on the LSTM and AXLE
+# lost to the plain DE there (LOYO 0.021 vs 0.049, LORO -1.816 vs -1.265) -- consistent
+# with the coherence gate, since single-model AXLE also loses on the LSTM. The gain
+# lives on the transformer (LOYO 0.176 vs -0.040), so that is where the DE comparison
+# is informative. Override with model=lstm to reproduce the negative LSTM result.
 defaults:
   - override /data: germany
-  - override /model: lstm
+  - override /model: transformer
 ensemble:
   members: 5
 crop: wheat
 train:
   epochs: 30
+  batch_size: 4096
 hydra:
   mode: MULTIRUN
   sweeper:
     params:
-      loss: mse,axle
+      loss: mse,axle,axle_spatial
       protocol: loyo,loro

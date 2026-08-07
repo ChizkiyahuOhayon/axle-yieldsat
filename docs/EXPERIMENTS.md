@@ -137,8 +137,8 @@ Two things survive this:
 | backbone | protocol | mse | invvar | hetero | **axle** |
 |---|---|---|---|---|---|
 | lstm | cv10 | 0.424 | 0.306 | 0.186 | 0.177 |
-| lstm | loyo | 0.062 | −0.023 | −0.142 | (see note) |
-| lstm | loro | −0.329 | −0.408 | −0.052 | (see note) |
+| lstm | loyo | **0.062** | −0.023 | −0.142 | −0.126 |
+| lstm | loro | −0.329 | −0.408 | **−0.052** | −0.036 |
 | tempcnn | cv10 | 0.592 | 0.515 | 0.582 | 0.565 |
 | tempcnn | loyo | −0.041 | 0.005 | −0.086 | **0.002** |
 | tempcnn | loro | −0.289 | −0.914 | −0.563 | −0.522 |
@@ -159,16 +159,38 @@ losses (mse/invvar) single-model have no interval (0.00) by construction.
    equal-weight *collapse* (−0.04) into a clearly positive R² (+0.18), a **+0.22**
    field-R² gain over MSE. This is exactly the mechanism's claim: not fitting the
    swath/quality-driven label noise buys OOD robustness.
-3. **Backbone-dependent.** On TempCNN, LOYO axle (0.002) only ties the best baseline;
-   on LSTM (weakest readout) the signal is muddier. The gain concentrates where the
-   backbone has the capacity to otherwise overfit the label noise — consistent with
-   the coherence-gate finding (`docs/METHOD.md`).
+3. **Backbone-dependent, and on the LSTM it is a loss.** On TempCNN, LOYO axle (0.002)
+   only ties the best baseline; on the LSTM, axle LOYO (−0.126) is clearly *worse* than
+   MSE (0.062). The gain concentrates where the backbone has the capacity to otherwise
+   overfit the label noise — consistent with the coherence gate (`docs/METHOD.md`), but
+   it means the honest claim is conditional, not universal: **AXLE helps high-capacity
+   backbones under year-shift and hurts the weak one.**
 4. **LORO is inconclusive here.** All losses collapse to strongly negative R² with huge
    fold variance (std up to ~3.5 over 6 farms) — Germany has only 6 farms, so a single
    bad held-out farm dominates. Needs per-fold inspection; do not read a loss ordering
    from it yet.
 5. **Deep Ensemble adds calibration to point losses** (mse members=5 PICP@90 ≈ 0.17–0.29
    vs 0.00 single-model), confirming the ensemble uncertainty path works.
+
+### Deep Ensemble (members=5, LSTM) — recovered 2026-08-07
+
+The members-aware collector finally separates these rows. Field R²:
+
+| protocol | `mse` x5 (the paper's strongest baseline) | `axle` x5 (reliability-aware DE) |
+|---|---|---|
+| loyo | **0.049** | 0.021 |
+| loro | **−1.265** | −1.816 |
+
+**AXLE loses to the plain Deep Ensemble on the LSTM, on both shift protocols.** Report
+it as such. Two things keep this from being fatal:
+
+- Ensembling helps AXLE far more than it helps MSE (LOYO: −0.126 → 0.021, i.e. +0.15,
+  versus 0.062 → 0.049 for MSE), so the two are converging, not diverging.
+- It is the **LSTM**, the backbone where single-model AXLE also loses (LOYO −0.126 vs
+  MSE 0.062). The coherence gate predicts exactly this. The DE test was never run on
+  the transformer — where single-model AXLE *wins* by +0.22 — so **the decisive
+  DE comparison does not exist yet**. `configs/experiment/deep_ensemble.yaml` now
+  defaults to the transformer for that reason.
 
 ### Caveats / to redo
 
