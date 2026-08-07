@@ -100,7 +100,8 @@ python -m axle.train -m loss=mse,invvar,hetero,axle data=germany model=lstm prot
 
 - **models**: `lstm`, `tempcnn`, `transformer` — AXLE is backbone-agnostic.
 - **losses**: `mse` (equal-weight baseline) · `invvar` (naive inverse-variance) ·
-  `hetero` (learned, unanchored) · `axle` (anchored — ours).
+  `hetero` (learned, unanchored) · `axle` (M1, anchored — ours) ·
+  `axle_spatial` (M2, anchored + swath-correlated — ours).
 - **protocols**: `cv10` (in-distribution) · `loyo` · `loro` (the shift settings).
 - **deep ensemble**: add `ensemble.members=5`. With `loss=mse` this is the benchmark's
   strongest baseline; with `loss=axle` it is a *reliability-aware* deep ensemble.
@@ -110,6 +111,20 @@ python -m axle.train -m loss=mse,invvar,hetero,axle data=germany model=lstm prot
 # Deep Ensemble baseline vs reliability-aware DE, under shift:
 python -m axle.train -m +experiment=deep_ensemble
 ```
+
+**AXLE-M2** (`loss=axle_spatial`) additionally models the *correlation* of harvester
+error along the machine's travel direction, so it trains on field patches rather than
+a bag of pixels. Estimate the per-field direction once per cache, then train as usual:
+
+```bash
+python scripts/estimate_directions.py data/cache/Germany     # writes directions.parquet
+python -m axle.train data=germany model=transformer loss=axle_spatial protocol=loyo crop=wheat
+python -m axle.train -m +experiment=axle_spatial             # mse vs M1 vs M2, both protocols
+```
+
+Patch geometry is `patch.tile` (block side, default 16 px) and `patch.min_pixels`;
+batches are counted in patches (`train.patch_batch_size`). Without
+`directions.parquet` M2 still runs, isotropically. See `docs/METHOD.md`.
 
 Each run writes `predictions.parquet` and `metrics.json` (pixel/field RMSE·R²,
 calibration NLL·PICP@90, and the reliability-stratified gap), reported as
@@ -126,14 +141,16 @@ bash scripts/run_all.sh /path/Both.zip /path/Preprocessed   # builds caches + fu
 ```
 configs/            Hydra configs (data / model / loss / protocol / experiment)
 src/axle/
-  data/             prepare (NetCDF→cache), dataset, splits, reliability join
+  data/             prepare (NetCDF→cache), dataset, splits, reliability join,
+                    patches + direction (M2)
   models/           backbones (lstm/tempcnn/transformer) + heads
-  losses/           mse · invvar · hetero · axle (M1); spatial (M2, experimental)
+  losses/           mse · invvar · hetero · axle (M1) · spatial/axle_spatial (M2)
   eval/             metrics (accuracy, calibration, reliability-stratified)
   trainer.py        one-fold training loop
   train.py          Hydra entry: run a protocol end-to-end
   data/synthetic.py synthetic cache generator (clone-and-run demo / CI)
-scripts/            prepare.py, make_synthetic_cache.py, extract_reliability_table.py, run_all.sh
+scripts/            prepare.py, estimate_directions.py, make_synthetic_cache.py,
+                    extract_reliability_table.py, collect_results.py, run_all.sh
 tests/              unit + config-composition + end-to-end smoke tests
 docs/               METHOD.md, DATA.md, ROADMAP.md
 .github/workflows/  CI (tests + a real CLI run on Python 3.10–3.12)

@@ -56,12 +56,15 @@ class YieldSATPixels(Dataset):
     def __len__(self) -> int:
         return len(self.rows)
 
+    def _inputs(self, x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Normalise raw band values and derive the valid-timestep mask."""
+        mask = np.isfinite(x).any(axis=-1).astype(np.float32)
+        x = (x - self.mean) / self.std
+        return np.nan_to_num(x, nan=self.nan_fill, posinf=self.nan_fill, neginf=self.nan_fill), mask
+
     def __getitem__(self, i: int) -> dict:
         r = int(self.rows[i])
-        x = np.asarray(self.sample[r], dtype=np.float32)  # (T, C), NaN at padded steps
-        mask = np.isfinite(x).any(axis=1).astype(np.float32)  # (T,) valid-timestep indicator
-        x = (x - self.mean) / self.std
-        x = np.nan_to_num(x, nan=self.nan_fill, posinf=self.nan_fill, neginf=self.nan_fill)
+        x, mask = self._inputs(np.asarray(self.sample[r], dtype=np.float32))  # (T, C), (T,)
         return {
             "sample": torch.from_numpy(x),
             "mask": torch.from_numpy(mask),
@@ -69,4 +72,23 @@ class YieldSATPixels(Dataset):
             "sigma2_acq": torch.tensor(self._s2acq[r]),
             "has_rel": torch.tensor(self._has_rel[r]),
             "quality_idx": torch.tensor(self._qidx[r]),
+        }
+
+    def gather(self, positions: np.ndarray) -> dict:
+        """Read many items at once (leading axis = ``len(positions)``).
+
+        One vectorised memmap read instead of a Python loop. Once the cache is warm
+        this is ~12x cheaper per item than repeated ``__getitem__`` (1.6 vs 19 us on
+        Germany); cold reads are disk-bound either way. Used by the M2 patch dataset,
+        where a single item is hundreds of pixels (see :mod:`axle.data.patches`).
+        """
+        r = self.rows[np.asarray(positions, dtype=np.int64)]
+        x, mask = self._inputs(np.asarray(self.sample[r], dtype=np.float32))  # (k, T, C), (k, T)
+        return {
+            "sample": torch.from_numpy(x),
+            "mask": torch.from_numpy(mask),
+            "target": torch.from_numpy(self._target[r]),
+            "sigma2_acq": torch.from_numpy(self._s2acq[r]),
+            "has_rel": torch.from_numpy(self._has_rel[r]),
+            "quality_idx": torch.from_numpy(self._qidx[r]),
         }

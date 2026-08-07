@@ -1,0 +1,20 @@
+# @package _global_
+# AXLE-M2 vs M1 vs equal-weight under both shift protocols, on the backbone where the
+# M1 gain appeared (transformer, Run 001). M2 differs from M1 by one thing only -- the
+# swath off-diagonal -- so this sweep isolates the correlation term.
+#   python -m axle.train -m +experiment=axle_spatial
+# Needs directions.parquet: python scripts/estimate_directions.py data/cache/Germany
+defaults:
+  - override /data: germany
+  - override /model: transformer
+crop: wheat
+train:
+  epochs: 30
+  batch_size: 4096       # pixels/step for mse+axle
+  patch_batch_size: 32   # ~32 x 130 px/step for axle_spatial -- same order, not identical
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      loss: mse,axle,axle_spatial
+      protocol: loyo,loro

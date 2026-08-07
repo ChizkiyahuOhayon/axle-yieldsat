@@ -13,19 +13,22 @@ Staging mirrors the research plan (P1 → P2).
 - [x] Reproducibility: Hydra configs, seeds, per-fold predictions + metrics, W&B hook.
 - [x] Tests: objectives, grade-scale, and the M2 mechanism claim on a synthetic swath.
 
-## v0.2 — AXLE-M2 wiring (swath-correlated loss)
+## v0.2 — AXLE-M2 wiring (swath-correlated loss) — released
 
-The correlated NLL is implemented and unit-tested in `losses/spatial.py`. What
-remains is to feed it field patches:
-
-1. **Field-patch dataset**: group a field's pixels into a patch, carry `(row, col)`
-   coordinates and the harvester direction `d_f`.
-2. **Direction estimation**: Radon transform on the support-count raster (one angle
-   per field, cached at `prepare` time); fall back to isotropic where no stripe.
-3. **Batched solve**: replace the dense Cholesky with conjugate-gradient +
-   stochastic-Lanczos-quadrature, exploiting the along-track Toeplitz structure
-   (O(k log k) matvec) so it scales to large fields.
-4. **Trainer hook**: a patch collate + a `SpatialAXLE` loss selectable via `loss=axle_spatial`.
+- [x] **Direction estimation** (`data/direction.py`, `scripts/estimate_directions.py`):
+      Radon scan of the support-count raster, one angle + strength per field, with an
+      isotropic fallback below threshold. Runs off `meta.parquet`, so no re-`prepare`.
+      Calibrated against a within-field shuffle null (see `docs/METHOD.md`).
+- [x] **Field-patch dataset** (`data/patches.py`): fields tiled into `tile × tile`
+      blocks carrying `(row, col)` and `d_f`; ragged blocks padded, padding neutralised.
+- [x] **Batched solve**: batched dense Cholesky over `(B, K, K)`. Tiling caps `K` at
+      `tile²` (256 by default), which keeps the exact solve cheaper than the backbone —
+      so the CG + stochastic-Lanczos path is **deferred**, not needed at this patch size.
+      It becomes necessary only if we move to whole-field patches (~10⁴ pixels), which
+      the correlation length (a few pixels) does not currently justify.
+- [x] **Trainer hook**: `loss=axle_spatial` switches the *training* set to patches
+      (validation stays per-pixel); `patch.tile` / `patch.min_pixels` /
+      `train.patch_batch_size` in `configs/config.yaml`.
 
 ## v0.3 — foundation-model probes & full grid
 

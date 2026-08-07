@@ -13,7 +13,7 @@ from pathlib import Path
 CONFIG_DIR = str(Path(__file__).resolve().parents[1] / "configs")
 DATA = ["germany", "argentina", "brazil", "uruguay", "synthetic"]
 MODELS = ["lstm", "tempcnn", "transformer"]
-LOSSES = ["mse", "invvar", "hetero", "axle"]
+LOSSES = ["mse", "invvar", "hetero", "axle", "axle_spatial"]
 PROTOCOLS = ["cv10", "loyo", "loro"]
 
 

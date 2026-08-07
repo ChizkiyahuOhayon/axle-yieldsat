@@ -18,8 +18,17 @@ from .prepare import S2_BANDS
 from .reliability import QUALITY_LEVELS
 
 
-def write_synthetic(out: str, fields: int = 120, pixels_per_field: int = 200, seed: int = 0) -> str:
-    """Write a synthetic cache to ``out`` in the exact prepare() format; return the path."""
+def write_synthetic(out: str, fields: int = 120, pixels_per_field: int = 200, seed: int = 0,
+                    swath: float = 0.0) -> str:
+    """Write a synthetic cache to ``out`` in the exact prepare() format; return the path.
+
+    ``swath > 0`` switches the label noise from per-pixel independent to the AXLE-M2
+    generative model: each field gets a random harvester angle, and pixels are grouped
+    into parallel passes ``swath`` pixels wide. Support count ``n_i`` is constant within
+    a pass (so the stripes are visible to the direction estimator) and the yield error
+    is *shared* by the whole pass -- coherent along track, independent across it. This
+    is the structure M2 claims to exploit and M1 cannot see.
+    """
     rng = np.random.default_rng(seed)
     bands, T, C = S2_BANDS, 24, len(S2_BANDS)
     farms = [f"farm{i}" for i in range(4)]
@@ -44,6 +53,19 @@ def write_synthetic(out: str, fields: int = 120, pixels_per_field: int = 200, se
         farm, crop, year = parts[2], parts[4], int(parts[5])
         side = int(np.ceil(np.sqrt(args.pixels_per_field)))
         field_effect = float(rng.normal(0, 1.5))   # per-field yield offset -> learnable field structure
+        theta = rng.uniform(0, np.pi)              # this field's harvester angle (swath mode)
+        passes: dict[int, tuple[float, float]] = {}
+
+        def pass_props(row_i: int, col_i: int) -> tuple[float, float]:
+            """(n_i, shared error) for the harvester pass this pixel belongs to."""
+            t = -np.sin(theta) * row_i + np.cos(theta) * col_i     # across-track coordinate
+            p = int(np.floor(t / swath))
+            if p not in passes:
+                n = float(rng.integers(0, 28))
+                s = 0.9
+                passes[p] = (n, float(rng.normal(0, np.sqrt(s**2 / max(n, 1)))))
+            return passes[p]
+
         for k in range(args.pixels_per_field):
             x = np.full((T, C), np.nan, np.float32)
             n_obs = rng.integers(8, len(valid_slots) + 1)
@@ -55,11 +77,17 @@ def write_synthetic(out: str, fields: int = 120, pixels_per_field: int = 200, se
             sample[p] = x
 
             feat = np.nanmean(x, axis=0)          # crude signal summary
-            n_i = float(rng.integers(0, 28))      # harvester support count 0..27
-            s_i = float(abs(rng.normal(0.9, 0.4)))
-            sigma2 = s_i**2 / max(n_i, 1)
             clean = 6.0 + 0.002 * float(feat @ w)  # feat carries the field-coherent offset
-            target = clean + rng.normal(0, np.sqrt(sigma2 + 0.05))  # low-support -> noisier
+            if swath > 0:
+                n_i, shared = pass_props(k // side, k % side)
+                s_i = 0.9
+                sigma2 = s_i**2 / max(n_i, 1)
+                target = clean + shared + rng.normal(0, 0.05)  # error coherent along the pass
+            else:
+                n_i = float(rng.integers(0, 28))  # harvester support count 0..27
+                s_i = float(abs(rng.normal(0.9, 0.4)))
+                sigma2 = s_i**2 / max(n_i, 1)
+                target = clean + rng.normal(0, np.sqrt(sigma2 + 0.05))  # low-support -> noisier
             q = QUALITY_LEVELS[min(2, int(n_i < 4) + int(n_i < 10))]
             rows.append({
                 "index": str(uuid.uuid4()), "target": np.float32(np.clip(target, 0, 20)),

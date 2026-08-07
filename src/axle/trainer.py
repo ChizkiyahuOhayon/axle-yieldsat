@@ -31,6 +31,23 @@ def _to_device(batch: dict, device) -> dict:
     return {k: (v.to(device) if torch.is_tensor(v) else v) for k, v in batch.items()}
 
 
+def _forward(model, batch: dict):
+    """Run the backbone on either a pixel batch (B, T, C) or a patch batch (B, K, T, C).
+
+    Patches are flattened to pixels for the (per-pixel) backbone and reshaped back, so
+    the spatial loss sees (B, K) fields it can build a covariance over. The backbone
+    itself stays untouched -- M2 changes the objective, not the predictor.
+    """
+    x, mask = batch["sample"], batch["mask"]
+    if x.dim() != 4:
+        return model(x, mask)
+    b, k = x.shape[:2]
+    out = model(x.reshape(b * k, *x.shape[2:]), mask.reshape(b * k, -1))
+    if isinstance(out, dict):
+        return {key: v.reshape(b, k) for key, v in out.items()}
+    return out.reshape(b, k)
+
+
 def train_fold(
     build_fn: BuildFn,
     train_ds,
@@ -79,7 +96,8 @@ def _train_single(model, loss_fn, train_ds, val_ds, *, epochs, batch_size, lr,
     # drop_last only when it still leaves a batch (BatchNorm needs >1 sample; small
     # folds must not end up with zero batches).
     drop_last = len(train_ds) >= 2 * batch_size
-    tl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, pin_memory=True, num_workers=num_workers, drop_last=drop_last)
+    tl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, pin_memory=True, num_workers=num_workers,
+                    drop_last=drop_last, collate_fn=getattr(train_ds, "collate_fn", None))
     vl = DataLoader(val_ds, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=num_workers)
 
     best_r2, best_df, best_metrics = -np.inf, None, {}
@@ -89,7 +107,7 @@ def _train_single(model, loss_fn, train_ds, val_ds, *, epochs, batch_size, lr,
         for batch in tl:
             batch = _to_device(batch, device)
             opt.zero_grad()
-            loss = loss_fn(model(batch["sample"], batch["mask"]), batch)
+            loss = loss_fn(_forward(model, batch), batch)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(params, grad_clip)
             opt.step()

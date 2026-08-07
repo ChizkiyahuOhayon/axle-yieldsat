@@ -19,6 +19,7 @@ import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 
 from .data.dataset import YieldSATPixels
+from .data.patches import YieldSATPatches, load_directions
 from .data.splits import make_splits
 from .losses import build_loss
 from .models import build_model
@@ -59,12 +60,33 @@ def run(cfg: DictConfig) -> dict:
     model_kw = {k: v for k, v in cfg.model.items() if k != "name"}
     members = int(cfg.get("ensemble", {}).get("members", 1))
 
+    # AXLE-M2 trains on field patches (correlated NLL); everything else on pixel bags.
+    # Validation is per-pixel either way -- the objective changes, not the predictor.
+    use_patches = getattr(build_loss(cfg.loss.name, **loss_kw), "requires_patches", False)
+    directions, train_bs = None, cfg.train.batch_size
+    if use_patches:
+        train_bs = cfg.train.patch_batch_size
+        directions = load_directions(cfg.data.cache_dir, cfg.patch.directions)
+        if directions is None:
+            print(f"[patches] no {cfg.data.cache_dir}/directions.parquet -- M2 runs isotropic; "
+                  "run scripts/estimate_directions.py to anchor the swath geometry")
+        else:
+            share = float(directions["has_direction"].mean())
+            print(f"[patches] tile={cfg.patch.tile} min_pixels={cfg.patch.min_pixels} | "
+                  f"d_f found for {share:.1%} of {len(directions)} fields")
+
     fold_metrics, all_preds = [], []
     for fold, (tr_local, va_local) in enumerate(splits):
         # map local (sub_meta) positions back to global dataset rows
         tr = sub_pos[tr_local]
         va = sub_pos[va_local]
-        train_ds = YieldSATPixels(cfg.data.cache_dir, indices=tr, nan_fill=cfg.data.nan_fill)
+        train_ds = (
+            YieldSATPatches(cfg.data.cache_dir, indices=tr, nan_fill=cfg.data.nan_fill,
+                            tile=cfg.patch.tile, min_pixels=cfg.patch.min_pixels,
+                            directions=directions)
+            if use_patches else
+            YieldSATPixels(cfg.data.cache_dir, indices=tr, nan_fill=cfg.data.nan_fill)
+        )
         val_ds = YieldSATPixels(cfg.data.cache_dir, indices=va, nan_fill=cfg.data.nan_fill)
 
         def build():  # fresh (model, loss) per ensemble member
@@ -74,9 +96,10 @@ def run(cfg: DictConfig) -> dict:
             return model, loss_fn
 
         tag = f"{cfg.model.name}+{cfg.loss.name}" + (f" x{members}" if members > 1 else "")
-        print(f"[fold {fold}] train={len(tr):,} val={len(va):,} ({tag}, {cfg.protocol.name})")
+        unit = f"{len(train_ds):,} patches" if use_patches else f"{len(tr):,}"
+        print(f"[fold {fold}] train={unit} val={len(va):,} ({tag}, {cfg.protocol.name})")
         df, m = train_fold(build, train_ds, val_ds, members=members, seed=cfg.seed,
-                           epochs=cfg.train.epochs, batch_size=cfg.train.batch_size,
+                           epochs=cfg.train.epochs, batch_size=train_bs,
                            lr=cfg.train.lr, weight_decay=cfg.train.weight_decay,
                            grad_clip=cfg.train.grad_clip, num_workers=cfg.num_workers,
                            device=cfg.device, log_every=cfg.train.log_every)
