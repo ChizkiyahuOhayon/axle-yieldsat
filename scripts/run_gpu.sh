@@ -24,8 +24,12 @@ mkdir -p logs
 
 echo "GPU=$GPUS  tag=$TAG  log=$LOG"
 echo "args: $*"
+# hydra.{run,sweep}.dir hold hydra's own logs; the metrics land in cfg.output_dir,
+# which we tag so a sweep's results sit together under outputs/<tag>/.
 CUDA_VISIBLE_DEVICES="$GPUS" python -m axle.train "$@" \
     hydra.sweep.dir="multirun/${TAG}_${STAMP}" \
-    hydra.run.dir="outputs/${TAG}_${STAMP}" \
+    hydra.run.dir="multirun/${TAG}_${STAMP}/.hydra_single" \
+    output_dir='outputs/'"${TAG}_${STAMP}"'/${data.name}-${model.name}-${loss.name}-${protocol.name}-${crop}-s${seed}' \
     2>&1 | tee "$LOG"
 echo "done -> $LOG"
+echo "results: outputs/${TAG}_${STAMP}/  ->  python scripts/collect_results.py outputs/${TAG}_${STAMP}/ --metric field_r2"

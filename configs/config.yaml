@@ -30,7 +30,11 @@ train:
   grad_clip: 5.0
   log_every: 5
 
-output_dir: outputs/${now:%Y%m%d-%H%M%S}
+# Where metrics.json / predictions.parquet land. Self-describing so a sweep's results
+# are greppable and two jobs starting in the same second cannot collide. NOTE: this is
+# *not* hydra.run.dir / hydra.sweep.dir (those hold hydra's own logs) -- scan this tree
+# with scripts/collect_results.py.
+output_dir: outputs/${data.name}-${model.name}-${loss.name}-${protocol.name}-${crop}-s${seed}-${now:%Y%m%d-%H%M%S}
 wandb:
   enabled: false
   project: axle-yieldsat

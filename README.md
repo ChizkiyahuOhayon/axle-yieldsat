@@ -130,6 +130,15 @@ Each run writes `predictions.parquet` and `metrics.json` (pixel/field RMSE·R²,
 calibration NLL·PICP@90, and the reliability-stratified gap), reported as
 mean ± std across folds. Add `wandb.enabled=true` to log.
 
+They land in `cfg.output_dir` — by default a self-describing
+`outputs/<data>-<model>-<loss>-<protocol>-<crop>-s<seed>-<timestamp>/`. That is **not**
+`hydra.sweep.dir`, which holds only hydra's own logs, so collect results from
+`outputs/`:
+
+```bash
+python scripts/collect_results.py outputs/ --metric field_r2 --out results
+```
+
 ## Reproduce the benchmark tables
 
 ```bash

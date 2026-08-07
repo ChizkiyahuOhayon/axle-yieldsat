@@ -177,9 +177,12 @@ losses (mse/invvar) single-model have no interval (0.00) by construction.
   comparison (axle-DE vs mse-DE — the "stand on DE's shoulders" test) could not be read.
   Fixed in commit adding a `members` key. **Re-run** to get the clean split:
   ```bash
-  git pull && python scripts/collect_results.py multirun/ --metric field_r2
+  git pull && python scripts/collect_results.py outputs/ --metric field_r2
   ```
-  (scan `multirun/` only — `outputs/` held stale `make demo` synthetic runs, now auto-skipped).
+  Scan **`outputs/`**, not `multirun/`: `metrics.json` is written to `cfg.output_dir`,
+  while `hydra.sweep.dir` only holds hydra's own logs. (This log previously said
+  `multirun/`, which finds nothing — corrected 2026-08-07, along with making
+  `output_dir` self-describing so a sweep's results sit together and cannot collide.)
 
 ### Next
 
