@@ -72,13 +72,21 @@ def main():
         print("no usable metrics.json found under:", ", ".join(args.dirs))
         return
 
-    # average any repeated (config x seed) runs so each config appears once
-    num = df.select_dtypes("number").columns
-    df = df.groupby(KEYS, as_index=False, dropna=False)[list(num)].mean()
-
+    # collapse repeated (config x seed) runs so each config appears once, and report the
+    # spread *across seeds* -- the error bar a paper needs, distinct from the fold std
     mean_col = f"{args.metric}_mean"
-    show = [c for c in [*KEYS, mean_col, f"{args.metric}_std", "pixel_r2_mean",
-                        "pixel_picp90_mean", "reliability_gap_mean", "n_folds"] if c in df]
+    seed_std_col = f"{args.metric}_seed_std"
+    num = [c for c in df.select_dtypes("number").columns if c != "seed"]
+    grp = df.groupby(KEYS, as_index=False, dropna=False)
+    spread = grp.agg(**{seed_std_col: (mean_col, "std"), "n_seeds": ("seed", "nunique")}) \
+        if mean_col in df else None
+    df = grp[num].mean()
+    if spread is not None:
+        df = df.merge(spread, on=KEYS, how="left")
+
+    show = [c for c in [*KEYS, mean_col, seed_std_col, "n_seeds", f"{args.metric}_std",
+                        "pixel_r2_mean", "pixel_picp90_mean", "reliability_gap_mean",
+                        "n_folds"] if c in df]
     table = df[show].sort_values([c for c in KEYS if c in df]).reset_index(drop=True)
     pd.set_option("display.width", 180, "display.max_columns", 40)
     print(table.to_string(index=False))
