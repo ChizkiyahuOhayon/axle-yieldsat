@@ -38,11 +38,12 @@ def _forward(model, batch: dict):
     the spatial loss sees (B, K) fields it can build a covariance over. The backbone
     itself stays untouched -- M2 changes the objective, not the predictor.
     """
-    x, mask = batch["sample"], batch["mask"]
+    x, mask, static = batch["sample"], batch["mask"], batch.get("static")
     if x.dim() != 4:
-        return model(x, mask)
+        return model(x, mask, static)
     b, k = x.shape[:2]
-    out = model(x.reshape(b * k, *x.shape[2:]), mask.reshape(b * k, -1))
+    out = model(x.reshape(b * k, *x.shape[2:]), mask.reshape(b * k, -1),
+                None if static is None else static.reshape(b * k, -1))
     if isinstance(out, dict):
         return {key: v.reshape(b, k) for key, v in out.items()}
     return out.reshape(b, k)
@@ -159,7 +160,7 @@ def _validate(model, loss_fn, loader, val_ds, device) -> pd.DataFrame:
     tgt, pred, var = [], [], []
     for batch in loader:
         b = _to_device(batch, device)
-        out = model(b["sample"], b["mask"])
+        out = _forward(model, b)
         mu = out["mu"] if isinstance(out, dict) else out
         v = loss_fn.predictive_variance(out, b) if hasattr(loss_fn, "predictive_variance") else None
         tgt.extend(b["target"].cpu().numpy())

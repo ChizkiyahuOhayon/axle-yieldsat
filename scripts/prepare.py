@@ -51,7 +51,11 @@ def main():
     ap.add_argument("--out", required=True, help="output cache dir (parent when doing several countries)")
     ap.add_argument("--nc-dir", help="where to extract NetCDFs (default: <out>/_netcdf)")
     ap.add_argument("--keep-nc", action="store_true", help="keep the extracted NetCDF (default: delete it)")
-    ap.add_argument("--bands", nargs="*", default=S2_BANDS, help="bands to cache (default: 12 S2)")
+    ap.add_argument("--bands", nargs="*", default=S2_BANDS,
+                    help="bands to cache (default: the 12 S2 bands). Pass 'all' for the full "
+                         "120-band release: time-varying channels go to sample.npy, the 104 "
+                         "static ones (soil/DEM/coords) to static.npy, ~5.9x smaller than "
+                         "storing the repeats")
     # alternative inputs when NetCDFs are already extracted to plain .nc files
     ap.add_argument("--netcdf", help="single-country NetCDF path (skips extraction)")
     ap.add_argument("--root", help="dir holding <Country>/merge_*.nc (skips extraction)")

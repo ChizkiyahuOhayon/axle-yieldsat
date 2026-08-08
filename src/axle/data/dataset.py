@@ -19,12 +19,18 @@ class YieldSATPixels(Dataset):
 
     Returns per item::
 
-        sample        FloatTensor (T, C)   -- normalised, NaN-filled inputs
+        sample        FloatTensor (T, C)   -- normalised, NaN-filled time series
         mask          FloatTensor (T,)     -- 1 = real observation, 0 = padded step
+        static        FloatTensor (S,)     -- normalised static context (soil/DEM/coords);
+                                              absent when the cache has no static bands
         target        FloatTensor ()       -- yield (t/ha)
         sigma2_acq    FloatTensor ()       -- s_i^2 / max(n_i, 1); 0 if signal missing
         has_rel       FloatTensor ()       -- 1.0 if the reliability signal is present
         quality_idx   LongTensor  ()       -- 0/1/2 (Good/Average/Bad), 3 if missing
+
+    Reads both cache layouts: a plain ``bands.json`` list (dynamic bands only, the
+    S2-only caches) and the ``{"dynamic": [...], "static": [...]}`` manifest written
+    alongside ``static.npy`` for full-band caches.
     """
 
     def __init__(self, cache_dir: str, indices: np.ndarray | None = None, nan_fill: float = 0.0):
@@ -32,10 +38,17 @@ class YieldSATPixels(Dataset):
         self.sample = np.load(cache / "sample.npy", mmap_mode="r")  # (N, T, C)
         self.meta = pd.read_parquet(cache / "meta.parquet")
         norm = json.loads((cache / "norm.json").read_text())
-        bands = json.loads((cache / "bands.json").read_text())
+        manifest = json.loads((cache / "bands.json").read_text())
+        bands = manifest["dynamic"] if isinstance(manifest, dict) else manifest
+        static_bands = manifest.get("static", []) if isinstance(manifest, dict) else []
         self.mean = np.array([norm[b]["mean"] for b in bands], dtype=np.float32)
         self.std = np.array([norm[b]["std"] for b in bands], dtype=np.float32) + 1e-6
         self.nan_fill = float(nan_fill)
+
+        self.static = np.load(cache / "static.npy", mmap_mode="r") if static_bands else None
+        if self.static is not None:
+            self.static_mean = np.array([norm[b]["mean"] for b in static_bands], dtype=np.float32)
+            self.static_std = np.array([norm[b]["std"] for b in static_bands], dtype=np.float32) + 1e-6
 
         self.rows = np.arange(len(self.meta)) if indices is None else np.asarray(indices)
         m = self.meta
@@ -50,6 +63,10 @@ class YieldSATPixels(Dataset):
         return self.sample.shape[2]
 
     @property
+    def num_static(self) -> int:
+        return 0 if self.static is None else self.static.shape[1]
+
+    @property
     def seq_len(self) -> int:
         return self.sample.shape[1]
 
@@ -62,10 +79,15 @@ class YieldSATPixels(Dataset):
         x = (x - self.mean) / self.std
         return np.nan_to_num(x, nan=self.nan_fill, posinf=self.nan_fill, neginf=self.nan_fill), mask
 
+    def _static(self, r) -> np.ndarray:
+        """Normalised static context for row(s) ``r``; NaNs filled like the time series."""
+        s = (np.asarray(self.static[r], dtype=np.float32) - self.static_mean) / self.static_std
+        return np.nan_to_num(s, nan=self.nan_fill, posinf=self.nan_fill, neginf=self.nan_fill)
+
     def __getitem__(self, i: int) -> dict:
         r = int(self.rows[i])
         x, mask = self._inputs(np.asarray(self.sample[r], dtype=np.float32))  # (T, C), (T,)
-        return {
+        item = {
             "sample": torch.from_numpy(x),
             "mask": torch.from_numpy(mask),
             "target": torch.tensor(self._target[r]),
@@ -73,6 +95,9 @@ class YieldSATPixels(Dataset):
             "has_rel": torch.tensor(self._has_rel[r]),
             "quality_idx": torch.tensor(self._qidx[r]),
         }
+        if self.static is not None:
+            item["static"] = torch.from_numpy(self._static(r))
+        return item
 
     def gather(self, positions: np.ndarray) -> dict:
         """Read many items at once (leading axis = ``len(positions)``).
@@ -84,7 +109,7 @@ class YieldSATPixels(Dataset):
         """
         r = self.rows[np.asarray(positions, dtype=np.int64)]
         x, mask = self._inputs(np.asarray(self.sample[r], dtype=np.float32))  # (k, T, C), (k, T)
-        return {
+        out = {
             "sample": torch.from_numpy(x),
             "mask": torch.from_numpy(mask),
             "target": torch.from_numpy(self._target[r]),
@@ -92,3 +117,6 @@ class YieldSATPixels(Dataset):
             "has_rel": torch.from_numpy(self._has_rel[r]),
             "quality_idx": torch.from_numpy(self._qidx[r]),
         }
+        if self.static is not None:
+            out["static"] = torch.from_numpy(self._static(r))
+        return out

@@ -18,6 +18,32 @@ from .prepare import S2_BANDS
 from .reliability import QUALITY_LEVELS
 
 
+def write_static(cache: str, n_static: int = 8, seed: int = 0) -> str:
+    """Add a synthetic static block (soil/DEM-like) to an existing synthetic cache.
+
+    Mirrors the full-band cache layout: ``static.npy`` plus a ``{"dynamic","static"}``
+    band manifest, so the static path can be exercised without the 60 GB release file.
+    """
+    rng = np.random.default_rng(seed)
+    cache = Path(cache)
+    meta = pd.read_parquet(cache / "meta.parquet")
+    bands = json.loads((cache / "bands.json").read_text())
+    dyn = bands["dynamic"] if isinstance(bands, dict) else bands
+    names = [f"static_{i}" for i in range(n_static)]
+
+    # one value per *field* (soil and terrain vary between fields, not within a pixel)
+    codes = pd.factorize(meta["field_shared_name"])[0]
+    per_field = rng.normal(0, 1, size=(codes.max() + 1, n_static)).astype(np.float32)
+    arr = per_field[codes] + rng.normal(0, 0.05, size=(len(meta), n_static)).astype(np.float32)
+    np.save(cache / "static.npy", arr)
+
+    norm = json.loads((cache / "norm.json").read_text())
+    norm.update({b: {"mean": 0.0, "std": 1.0} for b in names})
+    (cache / "norm.json").write_text(json.dumps(norm, indent=2))
+    (cache / "bands.json").write_text(json.dumps({"dynamic": dyn, "static": names}, indent=2))
+    return str(cache)
+
+
 def write_synthetic(out: str, fields: int = 120, pixels_per_field: int = 200, seed: int = 0,
                     swath: float = 0.0) -> str:
     """Write a synthetic cache to ``out`` in the exact prepare() format; return the path.

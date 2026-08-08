@@ -41,6 +41,8 @@ def run(cfg: DictConfig) -> dict:
     OmegaConf.save(cfg, out / "config.yaml")
 
     full = YieldSATPixels(cfg.data.cache_dir, nan_fill=cfg.data.nan_fill)
+    print(f"[data] {cfg.data.name}: {len(full.meta):,} px | {full.num_features} time-varying "
+          f"bands x {full.seq_len} steps" + (f" + {full.num_static} static" if full.num_static else ""))
     meta = full.meta
     keep = np.ones(len(meta), bool)
     if cfg.crop:
@@ -92,7 +94,8 @@ def run(cfg: DictConfig) -> dict:
         def build():  # fresh (model, loss) per ensemble member
             loss_fn = build_loss(cfg.loss.name, **loss_kw)
             model = build_model(cfg.model.name, in_dim=full.num_features,
-                                predict_variance=loss_fn.predicts_variance, **model_kw)
+                                predict_variance=loss_fn.predicts_variance,
+                                static_dim=full.num_static, **model_kw)
             return model, loss_fn
 
         tag = f"{cfg.model.name}+{cfg.loss.name}" + (f" x{members}" if members > 1 else "")
