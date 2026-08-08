@@ -5,6 +5,78 @@ exact command, full results, and reading. Newest first.
 
 ---
 
+## Run 004 — Germany wheat, 3 seeds: the two modules answer to different shifts
+
+- **Date**: 2026-08-08. Commit `a675f9d`. Server `ubuntu-server`, A40 GPU 1.
+- **Setup**: transformer, 30 epochs, batch 4096 px / 64 patches, seeds **0, 1, 2**
+  (Run 003's seed 0 plus 18 new configs). Single model (members=1).
+- **Collected with**: `collect_results.py outputs/de_m2_* outputs/de_seeds_*`, which now
+  also reports the **across-seed** spread, distinct from the fold spread.
+
+### Results — field R², mean over 3 seeds
+
+| loss | cv10 | seed σ | LOYO | seed σ | LORO | seed σ | LORO fold σ |
+|---|---|---|---|---|---|---|---|
+| `mse` | **0.611** | 0.023 | 0.003 | 0.068 | −1.007 | 0.118 | 2.004 |
+| `axle` (M1) | 0.593 | 0.007 | **0.171** | 0.022 | −0.913 | 0.216 | 1.922 |
+| `axle_spatial` (M2) | 0.475 | 0.020 | 0.077 | 0.043 | **−0.318** | 0.197 | **0.574** |
+
+### Reading
+
+Seed spread is 0.007–0.22, well below the gaps between losses, so the ordering is now
+resolved rather than suggestive:
+
+1. **M1 beats MSE under year shift**: 0.171 vs 0.003, a 0.168 gap against a combined
+   seed σ of ≈0.07 (~2.4σ).
+2. **M1 beats M2 under year shift**: 0.171 vs 0.077, gap 0.094 against combined σ
+   ≈0.048 (~2σ). Run 003 called this "inside fold noise, not resolved" — with three
+   seeds it *is* resolved, and it goes against M2. Correction recorded.
+3. **M2 beats everything under farm shift**: −0.318 vs −1.007/−0.913, gap ≈0.69 against
+   combined σ ≈0.23 (~3σ), and the fold σ collapses from ~2.0 to 0.57.
+4. **M2 costs in-distribution accuracy**: cv10 0.475 vs 0.611, gap 0.136 at σ ≈0.03.
+   Real, not noise.
+
+**The shape of the contribution changed.** M2 is not "M1 but better" — the two modules
+answer to *different shifts*:
+
+| module | mechanism | wins under |
+|---|---|---|
+| M1 acquisition-anchored variance | how noisy is this pixel's label | **year shift (LOYO)** |
+| M2 swath-correlated covariance | how is that noise *arranged* | **farm shift (LORO)** |
+
+Mechanistically consistent: `d_f` is a field/farm-level property, so holding out a farm
+means holding out a machine and a driving pattern — modelling the stripe stops the model
+transporting the wrong geometry. Holding out a *year* keeps the same farms and much the
+same geometry, so M2 has little to earn and pays the correlated-likelihood cost.
+
+This is a sharper claim than "M2 improves on M1", and a harder one to collide with. It
+rests on **6 farms**, so it is a hypothesis until Argentina (57 farms) confirms it.
+
+### Argentina cache — verified, ready
+
+`prepare.py --data-root … --country Argentina` + `estimate_directions.py`:
+
+- **5,325,807 px / 751 fields / 57 farms / 2017–2024** — matches the paper's Table 2.
+- soybean 3,134,175 px · corn 1,266,445 · wheat 925,187.
+- reliability-signal coverage **100.0%** of pixels (Germany: 99%).
+- `d_f` resolved for **75.6%** of 751 fields, median strength **0.144** — against
+  Germany's 76.3% / 0.131. **The stripe signal replicates on a different country and a
+  different data provider**, which is the strongest evidence so far that it is a real
+  acquisition artifact and not a Germany-specific quirk.
+
+`loro` on 57 farms would be 57 trainings per config; `protocol.n_splits=8` now holds out
+8 disjoint farm *groups* instead (no farm straddles a split), keeping fold counts
+comparable with Germany.
+
+### Next
+
+- Argentina soybean LOYO + LORO (the plan's go/no-go, and the test of the
+  M1-temporal / M2-spatial split above).
+- Germany full-band (`--bands all`) to check whether the 12-band handicap is what keeps
+  our baselines below the published numbers.
+
+---
+
 ## Run 003 — Germany wheat: M2 on real data + the Deep-Ensemble test that was missing
 
 - **Date**: 2026-08-07. Commit `d9bf3c5`. Server `ubuntu-server`, env `axle`,
