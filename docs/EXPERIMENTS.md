@@ -5,6 +5,93 @@ exact command, full results, and reading. Newest first.
 
 ---
 
+## Run 003 — Germany wheat: M2 on real data + the Deep-Ensemble test that was missing
+
+- **Date**: 2026-08-07. Commit `d9bf3c5`. Server `ubuntu-server`, env `axle`,
+  A40 GPUs **1/2/3** (GPU 0 belongs to another user).
+- **Data**: `data/cache/Germany`, wheat (306,843 px / 188 fields), `d_f` resolved for
+  76.3% of 299 fields. Tiling keeps 97.9% of pixels.
+- **Config**: transformer unless stated, 30 epochs, batch 4096 px / 64 patches,
+  **seed 0 only**. 21 configs, all completed, no errors.
+
+### A. Deep Ensemble (members=5, transformer) — the decisive comparison
+
+| loss ×5 | LOYO | LORO |
+|---|---|---|
+| `mse` (the paper's strongest baseline) | −0.016 | −0.988 |
+| `axle` (M1) | 0.201 | −0.637 |
+| **`axle_spatial` (M2)** | **0.212** | **−0.471** |
+
+**AXLE beats the Deep Ensemble on both shift protocols: LOYO +0.23, LORO +0.52.**
+Run 001 ran this on the LSTM and AXLE lost; on the backbone where AXLE works, it wins.
+Calibration is not close: `mse`×5 gives pixel NLL **20.5 / 24.3** and PICP@90 **0.31**,
+versus NLL **2.27–2.40** and PICP **0.84–0.90** for AXLE. The Deep Ensemble's
+uncertainty is essentially broken under shift.
+
+### B. Single model (members=1, transformer), field R²
+
+| loss | cv10 | LOYO | LORO (std) |
+|---|---|---|---|
+| `mse` | **0.591** | −0.040 | −0.947 (1.97) |
+| `axle` (M1) | 0.588 | **0.176** | −1.135 (2.48) |
+| `axle_spatial` (M2) | 0.456 | 0.127 | **−0.113 (0.27)** |
+
+### C. Backbone gate for M2 (`axle_spatial`, members=1)
+
+| backbone | cv10 | LOYO | LORO | vs Run 001 baselines |
+|---|---|---|---|---|
+| lstm | −0.057 | −0.136 | −0.252 | worse than `mse` (0.062 LOYO) |
+| tempcnn | 0.551 | **0.112** | −0.272 | best on LOYO (`mse` −0.041, `axle` 0.002) |
+| transformer | 0.456 | 0.127 | −0.113 | see B |
+
+### Reading
+
+1. **The go/no-go-style comparison is positive** (A). This is the first time
+   AXLE-vs-DE exists on a capable backbone, and AXLE wins on accuracy *and*
+   calibration under both shifts.
+2. **The synthetic result did not transfer.** On planted swaths M2 beat M1 by +0.25
+   pixel R²; on real Germany LOYO M2 is **0.05 *below*** M1. The caution logged in
+   Run 002 was right: do not move the paper's centre of gravity to M2. Note the gap is
+   far inside the fold std (0.33/0.36) at **one seed** — it is not evidence *against*
+   M2 either, it is simply not resolved.
+3. **M2's real effect here is variance, not mean.** LORO fold std drops from 2.48 (M1)
+   / 1.97 (MSE) to **0.27**, a ~10× reduction, turning a −1.1 collapse into −0.11.
+   Run 001 called LORO unreadable because one bad held-out farm dominated; M2 removes
+   exactly that failure mode. Mechanistically coherent (a held-out farm harvests in a
+   different direction, and modelling the stripe stops the model chasing it) — and it
+   is a *new* claim, not the one we set out to test, so it needs its own confirmation
+   on a country with more farms.
+4. **M2 costs in-distribution accuracy** (cv10 0.456 vs 0.588). M1 was neutral there.
+   Report it; a correlated likelihood with no shift to correct is a weaker estimator.
+5. **The backbone gate holds for M2** (C): harmful on the LSTM, best-in-class on
+   TempCNN under LOYO. Same conditional claim as M1, now with 3 backbones × 5 losses.
+6. **`rho` 0.70 → 0.77 (single) / 0.83 (×5).** The correlation term earns something on
+   real data, but less than on synthetic (0.85) — real harvester noise carries less
+   kernel-capturable coherence than we planted.
+7. **The learned grade scale contradicts the harvester's own labels**:
+   `g(Good)` **1.86** > `g(Bad)` **1.00** for M1 (and 0.97 > 0.84 for M2). The model
+   wants *more* acquisition variance on fields the metadata calls Good. Read: once
+   `n_i` and `s_i` are in hand, `yieldmap_quality` adds no usable information and the
+   fitted correction runs the other way. Worth a paragraph — it is a falsification of
+   a component we assumed helpful.
+
+### Caveats
+
+- **One seed.** Every number above is seed 0. The M1-vs-M2 LOYO gap and the whole
+  ordering within AXLE variants are inside fold noise. Seeds 1–2 must run before any
+  of B/C is quotable.
+- Germany, wheat, 6 farms. LORO std is still 1.2–2.1 in the ensemble runs.
+- cv10 has 10 folds, LOYO 7, LORO 6 — fold counts differ, so std is not comparable
+  across protocols.
+
+### Next
+
+1. **Seeds 1–2** on the headline configs (cheap, removes the biggest caveat).
+2. **Argentina soybean** — the plan's real go/no-go, and the only way to test the new
+   LORO-variance claim with more than 6 farms.
+
+---
+
 ## Run 002 — AXLE-M2 wiring: is the swath geometry actually there?
 
 - **Date**: 2026-08-07
