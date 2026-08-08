@@ -1,1 +1,6 @@
 name: loro
+# Spatial shift: no farm ever appears in both train and validation.
+# null -> one fold per farm (Germany: 6). An integer caps the fold count by holding out
+# disjoint *groups* of farms instead, which is what makes Argentina (57 farms) affordable
+# and keeps fold counts comparable across countries.
+n_splits: null
