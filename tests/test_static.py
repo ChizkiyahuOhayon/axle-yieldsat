@@ -118,7 +118,7 @@ def test_end_to_end_with_static(static_cache, tmp_path, loss):
         "loss": {"name": loss, **({"learn_grade_scale": True} if loss.startswith("axle") else {})},
         "protocol": {"name": "cv10", "n_splits": 3},
         "patch": {"tile": 8, "min_pixels": 16, "directions": None},
-        "train": {"epochs": 2, "batch_size": 256, "patch_batch_size": 4, "lr": 2e-3,
+        "train": {"epochs": 2, "batch_size": 256, "patch_batch_size": 4, "lr": 2e-3, "inner_val_frac": 0.15,
                   "weight_decay": 0.0, "grad_clip": 5.0, "log_every": 0},
         "output_dir": str(tmp_path / f"run_{loss}"),
         "wandb": {"enabled": False, "project": "x", "entity": None},

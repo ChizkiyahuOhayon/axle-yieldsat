@@ -63,6 +63,31 @@ def loro(meta: pd.DataFrame, n_splits: int | None = None, **_) -> list[tuple[np.
     return leave_one_out(meta, "farm", n_splits)
 
 
+def inner_split(meta: pd.DataFrame, idx: np.ndarray, frac: float = 0.15,
+                seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    """Carve a field-grouped selection set out of a fold's *training* rows.
+
+    Epoch selection has to happen somewhere, and doing it on the held-out fold means
+    selecting on the very data the number is reported from -- optimistic, and unequally
+    so across losses, since a loss that overfits harder gains more from an oracle stop.
+    This holds out ``frac`` of the training *fields* instead, so the outer fold stays
+    untouched until the final evaluation.
+
+    Returns ``(fit_idx, select_idx)``; ``frac <= 0`` returns everything as fit.
+    """
+    idx = np.asarray(idx)
+    if frac <= 0:
+        return idx, np.empty(0, dtype=idx.dtype)
+    fields = np.unique(meta["field_shared_name"].to_numpy()[idx])
+    if len(fields) < 4:      # too few fields to spare any without starving the fit
+        return idx, np.empty(0, dtype=idx.dtype)
+    n_sel = int(np.clip(round(frac * len(fields)), 2, len(fields) - 2))
+    chosen = set(np.random.default_rng(seed).choice(fields, size=n_sel, replace=False))
+    in_sel = np.fromiter((f in chosen for f in meta["field_shared_name"].to_numpy()[idx]),
+                         dtype=bool, count=len(idx))
+    return idx[~in_sel], idx[in_sel]
+
+
 def make_splits(meta: pd.DataFrame, protocol: str, **kw) -> list[tuple[np.ndarray, np.ndarray]]:
     fns = {"cv10": cv10, "loyo": loyo, "loro": loro}
     if protocol not in fns:

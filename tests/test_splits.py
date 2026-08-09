@@ -58,3 +58,23 @@ def test_loyo_one_fold_per_year_and_no_field_leak():
 def test_unknown_protocol_is_rejected():
     with pytest.raises(ValueError, match="unknown protocol"):
         make_splits(_meta(n_farms=3), "leave-one-continent-out")
+
+
+def test_inner_split_is_field_disjoint_and_reserves_at_least_two_fields():
+    from axle.data.splits import inner_split
+    meta = _meta(n_farms=10)
+    idx = np.arange(len(meta))
+    fit, sel = inner_split(meta, idx, frac=0.15, seed=0)
+    f = meta["field_shared_name"].to_numpy()
+    assert set(f[fit]).isdisjoint(f[sel]), "a field must not be in both fit and select"
+    assert len(np.unique(f[sel])) >= 2, "one field gives an undefined field-level score"
+    assert len(fit) + len(sel) == len(idx)
+
+
+def test_inner_split_disabled_and_degenerate_cases():
+    from axle.data.splits import inner_split
+    meta = _meta(n_farms=10)
+    idx = np.arange(len(meta))
+    assert len(inner_split(meta, idx, frac=0.0)[1]) == 0          # explicitly off
+    tiny = _meta(n_farms=1, fields_per_farm=3)                     # 3 fields: nothing to spare
+    assert len(inner_split(tiny, np.arange(len(tiny)), frac=0.15)[1]) == 0

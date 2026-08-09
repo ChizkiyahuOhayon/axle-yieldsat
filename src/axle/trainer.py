@@ -54,6 +54,7 @@ def train_fold(
     train_ds,
     val_ds,
     *,
+    select_ds=None,
     members: int = 1,
     seed: int = 0,
     epochs: int = 30,
@@ -78,7 +79,7 @@ def train_fold(
             if log_every:
                 print(f"  [member {m + 1}/{members}]")
         model, loss_fn = build_fn()
-        df, _ = _train_single(model, loss_fn, train_ds, val_ds, epochs=epochs,
+        df, _ = _train_single(model, loss_fn, train_ds, val_ds, select_ds=select_ds, epochs=epochs,
                               batch_size=batch_size, lr=lr, weight_decay=weight_decay,
                               num_workers=num_workers, device=device, grad_clip=grad_clip,
                               log_every=log_every)
@@ -100,8 +101,16 @@ def _mean_diagnostics(diags: list[dict]) -> dict:
     return {k: float(np.mean([d[k] for d in diags if k in d])) for k in sorted(keys)}
 
 
-def _train_single(model, loss_fn, train_ds, val_ds, *, epochs, batch_size, lr,
+def _train_single(model, loss_fn, train_ds, val_ds, *, select_ds=None, epochs, batch_size, lr,
                   weight_decay, num_workers, device, grad_clip, log_every):
+    """Train one model.
+
+    With ``select_ds`` (a slice held out of the *training* fields) the best epoch is
+    chosen on that set and the outer fold is scored once, at the end, with the restored
+    weights -- so the reported number never selected on itself. Without it, the legacy
+    behaviour applies: the best epoch is picked on the outer fold, which is optimistic
+    and kept only for reproducing earlier runs.
+    """
     model = model.to(device)
     loss_fn = loss_fn.to(device)
     params = list(model.parameters()) + list(loss_fn.parameters())  # AXLE grade-scale lives in the loss
@@ -113,8 +122,12 @@ def _train_single(model, loss_fn, train_ds, val_ds, *, epochs, batch_size, lr,
     tl = DataLoader(train_ds, batch_size=batch_size, shuffle=True, pin_memory=True, num_workers=num_workers,
                     drop_last=drop_last, collate_fn=getattr(train_ds, "collate_fn", None))
     vl = DataLoader(val_ds, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=num_workers)
+    honest = select_ds is not None and len(select_ds) > 0
+    sl = (DataLoader(select_ds, batch_size=batch_size, shuffle=False, pin_memory=True,
+                     num_workers=num_workers) if honest else None)
 
-    best_r2, best_df, best_metrics = -np.inf, None, {}
+    best_score, best_state, best_epoch = -np.inf, None, -1
+    best_df, best_metrics = None, {}
     for epoch in range(epochs):
         model.train()
         running = 0.0
@@ -126,13 +139,35 @@ def _train_single(model, loss_fn, train_ds, val_ds, *, epochs, batch_size, lr,
             torch.nn.utils.clip_grad_norm_(params, grad_clip)
             opt.step()
             running += loss.item()
-        val_df = _validate(model, loss_fn, vl, val_ds, device)
-        m = all_metrics(val_df)
-        if log_every and (epoch % log_every == 0 or epoch == epochs - 1):
-            print(f"    epoch {epoch:3d} | train_loss {running/max(len(tl),1):.4f} | "
-                  f"pixel_r2 {m['pixel_r2']:.4f} | field_r2 {m['field_r2']:.4f}")
-        if m["field_r2"] > best_r2:
-            best_r2, best_df, best_metrics = m["field_r2"], val_df, m
+
+        if honest:  # score the inner selection set; the outer fold stays untouched
+            # pixel R2, not field R2: the inner split may hold only a couple of fields,
+            # where a field-level R2 is noisy or undefined. The two rank epochs alike.
+            score = all_metrics(_validate(model, loss_fn, sl, select_ds, device))["pixel_r2"]
+            if np.isfinite(score) and score > best_score:
+                best_score, best_epoch = score, epoch
+                best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+            if log_every and (epoch % log_every == 0 or epoch == epochs - 1):
+                print(f"    epoch {epoch:3d} | train_loss {running/max(len(tl),1):.4f} | "
+                      f"select_pixel_r2 {score:.4f}")
+        else:      # legacy: select on the outer fold (optimistic)
+            val_df = _validate(model, loss_fn, vl, val_ds, device)
+            m = all_metrics(val_df)
+            if log_every and (epoch % log_every == 0 or epoch == epochs - 1):
+                print(f"    epoch {epoch:3d} | train_loss {running/max(len(tl),1):.4f} | "
+                      f"pixel_r2 {m['pixel_r2']:.4f} | field_r2 {m['field_r2']:.4f}")
+            if m["field_r2"] > best_score:
+                best_score, best_df, best_metrics = m["field_r2"], val_df, m
+
+    if honest:
+        if best_state is not None:      # no finite score at any epoch -> keep the last weights
+            model.load_state_dict(best_state)
+        best_df = _validate(model, loss_fn, vl, val_ds, device)
+        best_metrics = all_metrics(best_df)
+        best_metrics["selected_epoch"] = float(best_epoch if best_state is not None else epochs - 1)
+        if log_every:
+            print(f"    -> epoch {best_metrics['selected_epoch']:.0f} selected on the inner split | "
+                  f"held-out field_r2 {best_metrics['field_r2']:.4f}")
     return best_df, best_metrics
 
 

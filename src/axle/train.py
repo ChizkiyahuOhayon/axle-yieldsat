@@ -20,7 +20,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from .data.dataset import YieldSATPixels
 from .data.patches import YieldSATPatches, load_directions
-from .data.splits import make_splits
+from .data.splits import inner_split, make_splits
 from .losses import build_loss
 from .models import build_model
 from .trainer import train_fold
@@ -80,8 +80,12 @@ def run(cfg: DictConfig) -> dict:
     fold_metrics, all_preds = [], []
     for fold, (tr_local, va_local) in enumerate(splits):
         # map local (sub_meta) positions back to global dataset rows
-        tr = sub_pos[tr_local]
+        fit_local, sel_local = inner_split(sub_meta, tr_local,
+                                           frac=cfg.train.inner_val_frac, seed=cfg.seed)
+        tr = sub_pos[fit_local]
         va = sub_pos[va_local]
+        select_ds = (YieldSATPixels(cfg.data.cache_dir, indices=sub_pos[sel_local],
+                                    nan_fill=cfg.data.nan_fill) if len(sel_local) else None)
         train_ds = (
             YieldSATPatches(cfg.data.cache_dir, indices=tr, nan_fill=cfg.data.nan_fill,
                             tile=cfg.patch.tile, min_pixels=cfg.patch.min_pixels,
@@ -100,8 +104,10 @@ def run(cfg: DictConfig) -> dict:
 
         tag = f"{cfg.model.name}+{cfg.loss.name}" + (f" x{members}" if members > 1 else "")
         unit = f"{len(train_ds):,} patches" if use_patches else f"{len(tr):,}"
-        print(f"[fold {fold}] train={unit} val={len(va):,} ({tag}, {cfg.protocol.name})")
-        df, m = train_fold(build, train_ds, val_ds, members=members, seed=cfg.seed,
+        sel = f" select={len(sel_local):,}" if len(sel_local) else " select=none(legacy)"
+        print(f"[fold {fold}] train={unit}{sel} val={len(va):,} ({tag}, {cfg.protocol.name})")
+        df, m = train_fold(build, train_ds, val_ds, select_ds=select_ds,
+                           members=members, seed=cfg.seed,
                            epochs=cfg.train.epochs, batch_size=train_bs,
                            lr=cfg.train.lr, weight_decay=cfg.train.weight_decay,
                            grad_clip=cfg.train.grad_clip, num_workers=cfg.num_workers,

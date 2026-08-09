@@ -23,6 +23,11 @@ patch:
 
 train:
   epochs: 30
+  # Fraction of each fold's *training fields* held out to choose the epoch. The held-out
+  # fold is then scored once with the restored weights, so the reported number never
+  # selected on itself. 0 = legacy behaviour (best epoch picked on the outer fold);
+  # optimistic, kept only to reproduce Runs 001-004.
+  inner_val_frac: 0.15
   batch_size: 1024      # pixels per step (all losses except axle_spatial)
   patch_batch_size: 32  # patches per step (axle_spatial) ~= 32 x up-to-256 pixels
   lr: 1.0e-3
