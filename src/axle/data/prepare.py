@@ -26,6 +26,7 @@ Run once per country; training then reads the memmap with near-zero overhead.
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -60,7 +61,11 @@ def split_static_bands(ds, bands: list[str], bidx: list[int], probe: int = 2000,
     n = ds.sizes["index"]
     take = np.unique(np.linspace(0, n - 1, min(probe, n)).astype(int))
     x = ds["sample"].isel(index=take, band=bidx).values.astype(np.float64)  # (p, T, C)
-    with np.errstate(invalid="ignore"):
+    # a pixel whose band is NaN at every time step is expected (cloud-masked / padded);
+    # nanmax over an all-NaN slice warns and yields NaN, which we then treat as "no
+    # variation observed" -- so silence the warning rather than let it litter the log
+    with warnings.catch_warnings(), np.errstate(invalid="ignore"):
+        warnings.simplefilter("ignore", RuntimeWarning)
         within = np.nan_to_num(np.nanmax(np.nanmax(x, axis=1) - np.nanmin(x, axis=1), axis=0))
         overall = np.nan_to_num(np.nanstd(x, axis=(0, 1)))                  # (C,)
     is_static = within <= tol * np.maximum(overall, np.finfo(np.float64).tiny)

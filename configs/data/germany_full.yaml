@@ -1,0 +1,6 @@
+# Full 120-band Germany cache: 16 time-varying bands (12 S2 + 4 weather) x 24 steps,
+# plus 104 static channels (96 soil + 5 DEM + 3 coords) stored once per pixel.
+# Built with: prepare.py --data-root <release> --country Germany --out data/cache_full --bands all
+name: germany_full
+cache_dir: data/cache_full/Germany
+nan_fill: 0.0
