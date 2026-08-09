@@ -60,15 +60,31 @@ def test_unknown_protocol_is_rejected():
         make_splits(_meta(n_farms=3), "leave-one-continent-out")
 
 
-def test_inner_split_is_field_disjoint_and_reserves_at_least_two_fields():
+@pytest.mark.parametrize("key", ["field_shared_name", "year", "farm"])
+def test_inner_split_is_disjoint_on_its_own_key(key):
+    """Whatever the shift variable, fit and select must not share a value of it."""
     from axle.data.splits import inner_split
     meta = _meta(n_farms=10)
     idx = np.arange(len(meta))
-    fit, sel = inner_split(meta, idx, frac=0.15, seed=0)
-    f = meta["field_shared_name"].to_numpy()
-    assert set(f[fit]).isdisjoint(f[sel]), "a field must not be in both fit and select"
-    assert len(np.unique(f[sel])) >= 2, "one field gives an undefined field-level score"
-    assert len(fit) + len(sel) == len(idx)
+    fit, sel = inner_split(meta, idx, key=key, frac=0.15, seed=0)
+    v = meta[key].to_numpy()
+    assert set(v[fit]).isdisjoint(v[sel]), f"{key} leaked between fit and select"
+    assert len(sel) > 0 and len(fit) + len(sel) == len(idx)
+
+
+def test_selection_key_matches_each_protocol_shift():
+    """The selection set must mimic the outer shift, or it selects an over-trained model."""
+    from axle.data.splits import SELECTION_KEY
+    assert SELECTION_KEY == {"cv10": "field_shared_name", "loyo": "year", "loro": "farm"}
+
+
+def test_loyo_selection_holds_out_whole_years():
+    from axle.data.splits import inner_split
+    meta = _meta(n_farms=10)
+    fit, sel = inner_split(meta, np.arange(len(meta)), key="year", frac=0.15, seed=0)
+    years = meta["year"].to_numpy()
+    assert len(np.unique(years[sel])) >= 1
+    assert set(years[sel]).isdisjoint(years[fit]), "a year must be wholly in one side"
 
 
 def test_inner_split_disabled_and_degenerate_cases():
@@ -76,5 +92,5 @@ def test_inner_split_disabled_and_degenerate_cases():
     meta = _meta(n_farms=10)
     idx = np.arange(len(meta))
     assert len(inner_split(meta, idx, frac=0.0)[1]) == 0          # explicitly off
-    tiny = _meta(n_farms=1, fields_per_farm=3)                     # 3 fields: nothing to spare
-    assert len(inner_split(tiny, np.arange(len(tiny)), frac=0.15)[1]) == 0
+    tiny = _meta(n_farms=1, fields_per_farm=2, n_years=2)          # too few groups to spare
+    assert len(inner_split(tiny, np.arange(len(tiny)), key="farm", frac=0.15)[1]) == 0

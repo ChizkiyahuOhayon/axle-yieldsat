@@ -20,7 +20,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from .data.dataset import YieldSATPixels
 from .data.patches import YieldSATPatches, load_directions
-from .data.splits import inner_split, make_splits
+from .data.splits import SELECTION_KEY, inner_split, make_splits
 from .losses import build_loss
 from .models import build_model
 from .trainer import train_fold
@@ -80,7 +80,9 @@ def run(cfg: DictConfig) -> dict:
     fold_metrics, all_preds = [], []
     for fold, (tr_local, va_local) in enumerate(splits):
         # map local (sub_meta) positions back to global dataset rows
+        # selection set mirrors this protocol's shift (held-out year / farm / fields)
         fit_local, sel_local = inner_split(sub_meta, tr_local,
+                                           key=SELECTION_KEY[cfg.protocol.name],
                                            frac=cfg.train.inner_val_frac, seed=cfg.seed)
         tr = sub_pos[fit_local]
         va = sub_pos[va_local]
@@ -104,7 +106,8 @@ def run(cfg: DictConfig) -> dict:
 
         tag = f"{cfg.model.name}+{cfg.loss.name}" + (f" x{members}" if members > 1 else "")
         unit = f"{len(train_ds):,} patches" if use_patches else f"{len(tr):,}"
-        sel = f" select={len(sel_local):,}" if len(sel_local) else " select=none(legacy)"
+        sel = (f" select={len(sel_local):,}(held-out {SELECTION_KEY[cfg.protocol.name]})"
+               if len(sel_local) else " select=none(legacy)")
         print(f"[fold {fold}] train={unit}{sel} val={len(va):,} ({tag}, {cfg.protocol.name})")
         df, m = train_fold(build, train_ds, val_ds, select_ds=select_ds,
                            members=members, seed=cfg.seed,

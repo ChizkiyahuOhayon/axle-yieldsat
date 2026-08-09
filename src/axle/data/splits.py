@@ -63,28 +63,39 @@ def loro(meta: pd.DataFrame, n_splits: int | None = None, **_) -> list[tuple[np.
     return leave_one_out(meta, "farm", n_splits)
 
 
-def inner_split(meta: pd.DataFrame, idx: np.ndarray, frac: float = 0.15,
-                seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
-    """Carve a field-grouped selection set out of a fold's *training* rows.
+# The inner selection split must mimic the *outer* shift, or epoch selection is made
+# in-distribution while the score is reported out-of-distribution -- which reliably picks
+# an over-trained model. So each protocol selects on a held-out slice of its own shift key.
+SELECTION_KEY = {"cv10": "field_shared_name", "loyo": "year", "loro": "farm"}
 
-    Epoch selection has to happen somewhere, and doing it on the held-out fold means
+
+def inner_split(meta: pd.DataFrame, idx: np.ndarray, key: str = "field_shared_name",
+                frac: float = 0.15, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
+    """Carve a *shift-matched* selection set out of a fold's training rows.
+
+    Epoch selection has to happen somewhere. Doing it on the held-out fold means
     selecting on the very data the number is reported from -- optimistic, and unequally
     so across losses, since a loss that overfits harder gains more from an oracle stop.
-    This holds out ``frac`` of the training *fields* instead, so the outer fold stays
-    untouched until the final evaluation.
+    But holding out a random slice of *fields* is not enough either: that slice shares
+    the fold's years and farms, so it is in-distribution, and the epoch that is best
+    in-distribution is the over-trained one that does worst under shift.
+
+    So ``key`` is the protocol's own shift variable -- a held-out year for LOYO, a
+    held-out farm for LORO, held-out fields for CV10 -- and the selection set is a
+    miniature of the evaluation it is standing in for.
 
     Returns ``(fit_idx, select_idx)``; ``frac <= 0`` returns everything as fit.
     """
     idx = np.asarray(idx)
     if frac <= 0:
         return idx, np.empty(0, dtype=idx.dtype)
-    fields = np.unique(meta["field_shared_name"].to_numpy()[idx])
-    if len(fields) < 4:      # too few fields to spare any without starving the fit
+    values = meta[key].to_numpy()[idx]
+    groups = np.unique(values)
+    if len(groups) < 3:      # need at least one to spare and two to fit
         return idx, np.empty(0, dtype=idx.dtype)
-    n_sel = int(np.clip(round(frac * len(fields)), 2, len(fields) - 2))
-    chosen = set(np.random.default_rng(seed).choice(fields, size=n_sel, replace=False))
-    in_sel = np.fromiter((f in chosen for f in meta["field_shared_name"].to_numpy()[idx]),
-                         dtype=bool, count=len(idx))
+    n_sel = int(np.clip(round(frac * len(groups)), 1, len(groups) - 2))
+    chosen = set(np.random.default_rng(seed).choice(groups, size=n_sel, replace=False))
+    in_sel = np.fromiter((v in chosen for v in values), dtype=bool, count=len(idx))
     return idx[~in_sel], idx[in_sel]
 
 

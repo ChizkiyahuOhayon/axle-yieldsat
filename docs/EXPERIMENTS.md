@@ -16,6 +16,70 @@ exact command, full results, and reading. Newest first.
 > (−0.171). Under oracle stopping that fold reports −0.047; the honest number is
 > whatever the inner split picks. The bias is not uniform across losses, so it can
 > distort the loss comparison itself, not just the absolute level.
+>
+> **Amendment — 2026-08-09, commit `<shift-matched selection>`.** The first honest
+> implementation split the inner selection set by *field*, which shares the fold's years
+> and farms and is therefore in-distribution. Selecting an epoch in-distribution and
+> reporting out-of-distribution reliably picks the over-trained model — see Run 005,
+> where every OOD number collapsed. The selection set now mirrors the protocol's own
+> shift (`SELECTION_KEY`: a held-out **year** for LOYO, a held-out **farm** for LORO,
+> held-out **fields** for CV10). Run 005 is therefore also superseded.
+
+---
+
+## Run 005 — Germany under honest (but in-distribution) early stopping: the story does not survive
+
+- **Date**: 2026-08-09. Commit `691bd3a`. Transformer, 3 seeds, 25/27 configs finished
+  (the sweep was still running when collected; `axle_spatial`/LORO has only 1 seed).
+- **Change from Run 004**: epoch selected on a field-grouped slice of the *training*
+  fields instead of on the held-out fold.
+
+### Results — field R², oracle stop (Run 004) → honest stop (Run 005)
+
+| loss | cv10 | LOYO | LORO |
+|---|---|---|---|
+| `mse` | 0.611 → **0.485** | 0.003 → **−0.572** | −1.007 → **−1.450** |
+| `axle` (M1) | 0.593 → **0.510** | 0.171 → **−0.697** | −0.913 → **−1.427** |
+| `axle_spatial` (M2) | 0.475 → **0.284** | 0.077 → **−0.866** | −0.318 → **−2.240**¹ |
+
+¹ one seed only — not comparable.
+
+### Reading — this is a negative result and must be treated as one
+
+1. **The LOYO ordering inverts.** Under oracle stopping `axle` (0.171) beat `mse`
+   (0.003); under honest stopping `mse` (−0.572) beats `axle` (−0.697). **Run 004's
+   headline — "M1 wins under year shift" — was an artifact of selecting the epoch on the
+   evaluation fold.**
+2. **The LORO claim goes too.** M2's −0.318 becomes −2.240 (one seed) against MSE's
+   −1.450. The "M2 removes the catastrophic-farm failure" finding does not survive.
+3. **Only the in-distribution row keeps its shape**: cv10 `axle` 0.510 ≳ `mse` 0.485 >
+   `axle_spatial` 0.284. M2's in-distribution cost is the one Run 004 claim that
+   replicates.
+4. **Everything dropped by 0.1–1.4 R², including the baseline.** A uniform collapse of
+   that size is a protocol artifact, not a property of the losses — which is what led to
+   diagnosing the *second* flaw below.
+
+### Why the collapse — the selection set was in-distribution
+
+The inner split held out random *fields*, which share the fold's years and farms. So the
+epoch was chosen on in-distribution data while the score is reported out-of-distribution.
+Under shift those two disagree by construction: in-distribution performance keeps rising
+with training while OOD performance peaks early and decays (the Argentina curve shows
+exactly this). Selecting on the former systematically returns an over-trained model, and
+the deeper a loss can overfit, the more it is punished — so the comparison is distorted
+again, in the opposite direction from oracle stopping.
+
+**Fix**: the selection set now mirrors the protocol's shift — a held-out *year* for LOYO,
+a held-out *farm* for LORO, held-out *fields* for CV10. Both Run 004 and Run 005 are
+superseded; the paper's numbers must come from a re-run under the corrected protocol.
+
+### What survives all three protocols so far
+
+- M2 costs in-distribution accuracy (cv10), consistently.
+- The direction signal is real and replicates across countries (Run 002/004) — this is a
+  data finding, independent of the training protocol.
+- Nothing about M1 or M2 winning under shift is established. Treat the whole
+  shift-robustness claim as open.
 
 ---
 
