@@ -3,6 +3,20 @@
 A running, append-only record of every training campaign: date, environment,
 exact command, full results, and reading. Newest first.
 
+> **Protocol change — 2026-08-09, commit `2744e44`.** Runs 001–004 selected the best
+> epoch *on the held-out fold*, i.e. selection on the test set. Every number in those
+> runs is oracle-stopped and optimistic. From this point on `train.inner_val_frac=0.15`
+> holds out a field-grouped slice of each fold's **training** fields, selects the epoch
+> there, and scores the outer fold once with the restored weights. **Runs 001–004 are
+> exploratory and must not be quoted in the paper**; the tables have to come from
+> re-runs under the new protocol. `inner_val_frac=0` reproduces the old behaviour.
+>
+> Trigger: the Argentina LOYO curve — train loss falling monotonically (0.778 → 0.383)
+> while held-out field R² peaked at epoch 5 (−0.047) and decayed through epoch 15
+> (−0.171). Under oracle stopping that fold reports −0.047; the honest number is
+> whatever the inner split picks. The bias is not uniform across losses, so it can
+> distort the loss comparison itself, not just the absolute level.
+
 ---
 
 ## Run 004 — Germany wheat, 3 seeds: the two modules answer to different shifts
