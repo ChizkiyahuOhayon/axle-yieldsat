@@ -4,9 +4,9 @@ The preprocessed YieldSAT release stores one NetCDF per country with a flattened
 ``(index, time_step, band)`` sample tensor. Loading multi-GB NetCDF per batch is
 slow, so we materialise once into:
 
-* ``sample.npy``  -- float32 memmap ``(N, T, C_dyn)`` of the time-varying bands (raw values),
-* ``static.npy``  -- float32 memmap ``(N, C_static)``, written only when static bands
-  are selected (see below),
+* ``sample.npy``  -- memmap ``(N, T, C_dyn)`` of the time-varying bands (raw values),
+* ``static.npy``  -- memmap ``(N, C_static)``, written only when static bands are
+  selected (see below),
 * ``meta.parquet`` -- per-pixel table: target, field/crop/year/farm, row/col, and the
   joined AXLE reliability signals (n_i, s_i, quality, sigma2_acq_raw),
 * ``norm.json``   -- per-band mean/std (from the NetCDF ``stats-*`` coords) for z-scoring,
@@ -90,8 +90,16 @@ def prepare_country(
     both_zip: str | None = None,
     bands: list[str] | None = None,
     chunk: int = 50_000,
+    dtype: str = "float32",
 ) -> None:
-    """Materialise one country's NetCDF (+ optional reliability join) into ``out_dir``."""
+    """Materialise one country's NetCDF (+ optional reliability join) into ``out_dir``.
+
+    ``dtype='float16'`` halves the cache (all four countries at 120 bands: 24 GB -> 12 GB)
+    at a relative precision of ~1e-3. The stored values are *raw* physical quantities that
+    get z-scored at read time, so on reflectance around 3000 the rounding is under two
+    units -- orders of magnitude below sensor noise, and invisible after normalisation.
+    """
+    store = np.dtype(dtype)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     ds = xr.open_dataset(netcdf)
@@ -111,23 +119,23 @@ def prepare_country(
           f"{len(static_names)} static (stored once per pixel, not x{t})")
 
     # --- dynamic memmap (chunked to bound memory) ---
-    mm = np.lib.format.open_memmap(out / "sample.npy", mode="w+", dtype=np.float32,
+    mm = np.lib.format.open_memmap(out / "sample.npy", mode="w+", dtype=store,
                                    shape=(n, t, len(dyn_names)))
     for i in range(0, n, chunk):
         j = min(i + chunk, n)
-        mm[i:j] = ds["sample"].isel(index=slice(i, j), band=dyn_idx).values.astype(np.float32)
+        mm[i:j] = ds["sample"].isel(index=slice(i, j), band=dyn_idx).values.astype(store)
     mm.flush()
 
     # --- static memmap: one value per pixel, read from the first time step ---
     if static_names:
-        sm = np.lib.format.open_memmap(out / "static.npy", mode="w+", dtype=np.float32,
+        sm = np.lib.format.open_memmap(out / "static.npy", mode="w+", dtype=store,
                                        shape=(n, len(static_names)))
         for i in range(0, n, chunk):
             j = min(i + chunk, n)
             block = ds["sample"].isel(index=slice(i, j), band=static_idx).values.astype(np.float32)
             # a pixel's static value is constant in time, but the first slot can be NaN
             # padding -- take the first finite entry instead of blindly slot 0
-            sm[i:j] = _first_finite(block)
+            sm[i:j] = _first_finite(block).astype(store)
         sm.flush()
 
     # --- per-pixel metadata table ---
@@ -175,9 +183,9 @@ def prepare_country(
     # plain list stays the format when there is nothing static (old caches keep working)
     manifest = {"dynamic": dyn_names, "static": static_names} if static_names else dyn_names
     (out / "bands.json").write_text(json.dumps(manifest, indent=2))
-    gb = (n * t * len(dyn_names) + n * len(static_names)) * 4 / 1e9
+    gb = (n * t * len(dyn_names) + n * len(static_names)) * store.itemsize / 1e9
     print(f"[prepare] wrote {out}  (N={n:,}  T={t}  C_dyn={len(dyn_names)} "
-          f"C_static={len(static_names)}  {gb:.2f} GB)")
+          f"C_static={len(static_names)}  {store.name}  {gb:.2f} GB)")
 
 
 def _first_finite(block: np.ndarray) -> np.ndarray:

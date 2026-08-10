@@ -33,10 +33,10 @@ from axle.data.reliability import COUNTRIES, extract_preprocessed_netcdf
 NC_NAME = "merge_s2-soil-dem-weather-coords.nc"
 
 
-def _prepare_from_both(source, country, out, nc_dir, keep_nc, bands):
+def _prepare_from_both(source, country, out, nc_dir, keep_nc, bands, dtype):
     print(f"=== {country}: extracting NetCDF from {Path(source).name} ===")
     nc = extract_preprocessed_netcdf(source, country, nc_dir)
-    prepare_country(nc, str(Path(out) / country), both_zip=source, bands=bands)
+    prepare_country(nc, str(Path(out) / country), both_zip=source, bands=bands, dtype=dtype)
     if not keep_nc:  # only after a successful build, so a crash leaves it cached for a fast re-run
         Path(nc).unlink(missing_ok=True)
         print(f"[cleanup] removed intermediate {nc}")
@@ -57,6 +57,9 @@ def main():
                          "static ones (soil/DEM/coords) to static.npy, ~5.9x smaller than "
                          "storing the repeats")
     # alternative inputs when NetCDFs are already extracted to plain .nc files
+    ap.add_argument("--dtype", default="float32", choices=["float32", "float16"],
+                    help="cache storage precision. float16 halves the size at ~1e-3 relative "
+                         "error on raw values that are z-scored at read time anyway")
     ap.add_argument("--netcdf", help="single-country NetCDF path (skips extraction)")
     ap.add_argument("--root", help="dir holding <Country>/merge_*.nc (skips extraction)")
     args = ap.parse_args()
@@ -67,19 +70,20 @@ def main():
     if args.netcdf:                       # explicit single NetCDF
         country = args.country or _infer_country(args.netcdf)
         prepare_country(args.netcdf, str(Path(args.out) / country) if args.country else args.out,
-                        both_zip=source, bands=args.bands)
+                        both_zip=source, bands=args.bands, dtype=args.dtype)
     elif args.root:                       # pre-extracted tree of plain .nc files
         for c in COUNTRIES:
             nc = Path(args.root) / c / NC_NAME
             if nc.exists():
-                prepare_country(str(nc), str(Path(args.out) / c), both_zip=source, bands=args.bands)
+                prepare_country(str(nc), str(Path(args.out) / c), both_zip=source,
+                                bands=args.bands, dtype=args.dtype)
             else:
                 print(f"[skip] {nc} not found")
     elif source:                          # one command from Both.zip OR extracted dir (recommended)
         nc_dir = args.nc_dir or str(Path(args.out) / "_netcdf")
         countries = [args.country] if args.country else list(COUNTRIES)
         for c in countries:
-            _prepare_from_both(source, c, args.out, nc_dir, args.keep_nc, args.bands)
+            _prepare_from_both(source, c, args.out, nc_dir, args.keep_nc, args.bands, args.dtype)
     else:
         ap.error("provide --both, --data-root, --netcdf, or --root")
 
