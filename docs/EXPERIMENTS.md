@@ -27,6 +27,51 @@ exact command, full results, and reading. Newest first.
 
 ---
 
+## Run 006 — Germany, corrected protocol, 27/27: no shift effect, but calibration survives
+
+- **Date**: 2026-08-10. Commit `1e79558`. Transformer, 12 S2 bands, 3 seeds, shift-matched
+  epoch selection (LOYO selects on a held-out year, LORO on a held-out farm, CV10 on
+  held-out fields). **This is the first fully valid Germany table.**
+
+### Results — field R² (mean ± across-seed σ)
+
+| loss | cv10 | LOYO | LORO |
+|---|---|---|---|
+| `mse` | 0.485 ± 0.017 | −0.600 ± 0.140 | −3.347 ± 1.083 |
+| `axle` (M1) | **0.510 ± 0.038** | −0.676 ± 0.214 | −3.231 ± 1.416 |
+| `axle_spatial` (M2) | 0.284 ± 0.036 | −0.605 ± 0.056 | −3.860 ± 2.380 |
+
+### Reading
+
+1. **No shift effect, in either direction.** LOYO: −0.600 / −0.676 / −0.605 against seed
+   σ of 0.06–0.21 — the three losses are indistinguishable. The Run 004 claim ("M1 wins
+   year shift") is dead, and so is its mirror image; there is simply no effect to report.
+2. **LORO is not a measurement.** Every method lands at −3.2 to −3.9 with seed σ up to
+   2.4. Under the corrected protocol the selection set also removes a farm, leaving 4 of
+   6 to fit — Germany does not have the farms to support this protocol at all.
+3. **M2's in-distribution cost is the one robust effect**: cv10 0.284 vs 0.485/0.510,
+   ~5σ. It has now replicated under three different selection protocols.
+4. **M1 vs MSE in-distribution is a tie**: 0.510 vs 0.485, gap 0.025 against seed σ
+   0.017/0.038 (~0.6σ). Not a win. Report it as parity.
+
+### What survives every protocol change
+
+`pixel_picp90`: `axle` 0.70–0.80, `axle_spatial` 0.75–0.81, `mse` **0.000** by
+construction. **At matched accuracy, AXLE supplies calibrated per-pixel uncertainty and
+the benchmark's objective supplies none** — from metadata the dataset already ships, with
+no architecture change. This has held across the oracle-stopping, field-selection and
+shift-matched protocols, and across Germany and Argentina. It is the only claim that has
+never moved, and it is a different (weaker but defensible) paper from "we beat SOTA on R²".
+
+### Consequence for the campaign
+
+Germany is 188 wheat fields and 6 farms; under either shift protocol *every* method has
+negative field R². It cannot adjudicate a robustness claim and should be reported as the
+small-country ablation, not the main table. Argentina (751 fields, 57 farms, 5.3M px,
+`mse` LOYO 0.219 / LORO 0.464 even at 12 bands) is the real testbed.
+
+---
+
 ## Run 005 — Germany under honest (but in-distribution) early stopping: the story does not survive
 
 - **Date**: 2026-08-09. Commit `691bd3a`. Transformer, 3 seeds, 25/27 configs finished
