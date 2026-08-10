@@ -33,7 +33,8 @@ class YieldSATPixels(Dataset):
     alongside ``static.npy`` for full-band caches.
     """
 
-    def __init__(self, cache_dir: str, indices: np.ndarray | None = None, nan_fill: float = 0.0):
+    def __init__(self, cache_dir: str, indices: np.ndarray | None = None, nan_fill: float = 0.0,
+                 use_bands: list[str] | None = None, use_static: bool = True):
         cache = Path(cache_dir)
         self.sample = np.load(cache / "sample.npy", mmap_mode="r")  # (N, T, C)
         self.meta = pd.read_parquet(cache / "meta.parquet")
@@ -41,6 +42,19 @@ class YieldSATPixels(Dataset):
         manifest = json.loads((cache / "bands.json").read_text())
         bands = manifest["dynamic"] if isinstance(manifest, dict) else manifest
         static_bands = manifest.get("static", []) if isinstance(manifest, dict) else []
+
+        # A full-band cache can serve a reduced-input ablation (e.g. S2-only) without a
+        # second copy on disk: pick columns at read time instead of re-running prepare.
+        self.band_idx = None
+        if use_bands is not None:
+            missing = [b for b in use_bands if b not in bands]
+            if missing:
+                raise ValueError(f"{cache_dir} has no dynamic bands {missing}; it holds {bands}")
+            self.band_idx = np.array([bands.index(b) for b in use_bands])
+            bands = list(use_bands)
+        if not use_static:
+            static_bands = []
+
         self.mean = np.array([norm[b]["mean"] for b in bands], dtype=np.float32)
         self.std = np.array([norm[b]["std"] for b in bands], dtype=np.float32) + 1e-6
         self.nan_fill = float(nan_fill)
@@ -60,7 +74,7 @@ class YieldSATPixels(Dataset):
 
     @property
     def num_features(self) -> int:
-        return self.sample.shape[2]
+        return self.sample.shape[2] if self.band_idx is None else len(self.band_idx)
 
     @property
     def num_static(self) -> int:
@@ -74,7 +88,9 @@ class YieldSATPixels(Dataset):
         return len(self.rows)
 
     def _inputs(self, x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Normalise raw band values and derive the valid-timestep mask."""
+        """Select the requested bands, normalise, and derive the valid-timestep mask."""
+        if self.band_idx is not None:
+            x = x[..., self.band_idx]
         mask = np.isfinite(x).any(axis=-1).astype(np.float32)
         x = (x - self.mean) / self.std
         return np.nan_to_num(x, nan=self.nan_fill, posinf=self.nan_fill, neginf=self.nan_fill), mask

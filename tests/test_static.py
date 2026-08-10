@@ -125,3 +125,24 @@ def test_end_to_end_with_static(static_cache, tmp_path, loss):
     })
     summary = run(cfg)
     assert np.isfinite(summary["pixel_r2_mean"])
+
+
+def test_band_subset_serves_an_ablation_from_one_cache(static_cache):
+    """A full-band cache must be able to stand in for a reduced-input run, no re-prepare."""
+    import json, pathlib
+    manifest = json.loads((pathlib.Path(static_cache) / "bands.json").read_text())
+    dyn = manifest["dynamic"]
+
+    full = YieldSATPixels(static_cache)
+    sub = YieldSATPixels(static_cache, use_bands=dyn[:4])
+    assert full.num_features == len(dyn) and sub.num_features == 4
+    # the subset must be the same columns, not a reshuffle
+    assert torch.allclose(sub[0]["sample"], full[0]["sample"][:, :4])
+
+    nostatic = YieldSATPixels(static_cache, use_static=False)
+    assert nostatic.num_static == 0 and "static" not in nostatic[0]
+
+
+def test_band_subset_rejects_unknown_names(static_cache):
+    with pytest.raises(ValueError, match="no dynamic bands"):
+        YieldSATPixels(static_cache, use_bands=["B01", "not_a_band"])

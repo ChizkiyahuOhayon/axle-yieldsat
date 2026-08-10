@@ -2,3 +2,5 @@
 name: germany
 cache_dir: data/cache/Germany
 nan_fill: 0.0            # value for NaN inputs AFTER normalisation (0 = per-band mean)
+use_bands: null      # null = every dynamic band in the cache; a list restricts (e.g. S2-only from a full-band cache)
+use_static: true     # false drops the static block, for a "time series only" ablation

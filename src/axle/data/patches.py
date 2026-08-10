@@ -58,12 +58,12 @@ class YieldSATPatches(Dataset):
         cache_dir: str,
         indices: np.ndarray | None = None,
         *,
-        nan_fill: float = 0.0,
         tile: int = 16,
         min_pixels: int = 32,
         directions: pd.DataFrame | None = None,
+        **pixel_kw,
     ):
-        self.pixels = YieldSATPixels(cache_dir, indices=indices, nan_fill=nan_fill)
+        self.pixels = YieldSATPixels(cache_dir, indices=indices, **pixel_kw)
         self.tile = int(tile)
         rows = self.pixels.rows
         m = self.pixels.meta.iloc[rows]

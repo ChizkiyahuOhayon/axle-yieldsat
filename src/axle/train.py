@@ -40,7 +40,10 @@ def run(cfg: DictConfig) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(cfg, out / "config.yaml")
 
-    full = YieldSATPixels(cfg.data.cache_dir, nan_fill=cfg.data.nan_fill)
+    ds_kw = {"nan_fill": cfg.data.nan_fill,
+             "use_bands": OmegaConf.to_container(cfg.data.use_bands) if cfg.data.get("use_bands") else None,
+             "use_static": bool(cfg.data.get("use_static", True))}
+    full = YieldSATPixels(cfg.data.cache_dir, **ds_kw)
     print(f"[data] {cfg.data.name}: {len(full.meta):,} px | {full.num_features} time-varying "
           f"bands x {full.seq_len} steps" + (f" + {full.num_static} static" if full.num_static else ""))
     meta = full.meta
@@ -86,16 +89,15 @@ def run(cfg: DictConfig) -> dict:
                                            frac=cfg.train.inner_val_frac, seed=cfg.seed)
         tr = sub_pos[fit_local]
         va = sub_pos[va_local]
-        select_ds = (YieldSATPixels(cfg.data.cache_dir, indices=sub_pos[sel_local],
-                                    nan_fill=cfg.data.nan_fill) if len(sel_local) else None)
+        select_ds = (YieldSATPixels(cfg.data.cache_dir, indices=sub_pos[sel_local], **ds_kw)
+                     if len(sel_local) else None)
         train_ds = (
-            YieldSATPatches(cfg.data.cache_dir, indices=tr, nan_fill=cfg.data.nan_fill,
-                            tile=cfg.patch.tile, min_pixels=cfg.patch.min_pixels,
-                            directions=directions)
+            YieldSATPatches(cfg.data.cache_dir, indices=tr, tile=cfg.patch.tile,
+                            min_pixels=cfg.patch.min_pixels, directions=directions, **ds_kw)
             if use_patches else
-            YieldSATPixels(cfg.data.cache_dir, indices=tr, nan_fill=cfg.data.nan_fill)
+            YieldSATPixels(cfg.data.cache_dir, indices=tr, **ds_kw)
         )
-        val_ds = YieldSATPixels(cfg.data.cache_dir, indices=va, nan_fill=cfg.data.nan_fill)
+        val_ds = YieldSATPixels(cfg.data.cache_dir, indices=va, **ds_kw)
 
         def build():  # fresh (model, loss) per ensemble member
             loss_fn = build_loss(cfg.loss.name, **loss_kw)

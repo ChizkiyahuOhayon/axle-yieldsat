@@ -1,3 +1,5 @@
 name: argentina
 cache_dir: data/cache/Argentina
 nan_fill: 0.0
+use_bands: null      # null = every dynamic band in the cache; a list restricts (e.g. S2-only from a full-band cache)
+use_static: true     # false drops the static block, for a "time series only" ablation
