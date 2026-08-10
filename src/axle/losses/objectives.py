@@ -89,8 +89,13 @@ class AXLE(nn.Module):
 
     def __init__(self, n_grades: int = 3, learn_grade_scale: bool = True):
         super().__init__()
-        # log-scale so g = softplus(param) stays positive; init g ~= 1.
+        # log-scale so g = softplus(param) stays positive; init softplus(0) ~= 0.693.
         self.log_g = nn.Parameter(torch.zeros(n_grades), requires_grad=learn_grade_scale)
+        # How many pixels of each grade the loss actually saw. A grade with no support
+        # leaves its g at the initial value, which would otherwise be indistinguishable
+        # from a learned one -- Argentina soybean is 99.5% "Good" and has 476 "Bad"
+        # pixels in 3.1M, so its g_bad never moves.
+        self.register_buffer("grade_support", torch.zeros(n_grades + 1), persistent=False)
 
     def grade_scale(self, quality_idx: torch.Tensor) -> torch.Tensor:
         g = F.softplus(self.log_g) + _EPS                      # (n_grades,)
@@ -101,7 +106,13 @@ class AXLE(nn.Module):
         sigma2_acq = batch["sigma2_acq"] * batch["has_rel"] * self.grade_scale(batch["quality_idx"])
         return F.softplus(pred["logvar"]) + sigma2_acq + _EPS
 
+    @torch.no_grad()
+    def _count_grades(self, quality_idx: torch.Tensor) -> None:
+        idx = quality_idx.reshape(-1).clamp(max=self.grade_support.numel() - 1)
+        self.grade_support += torch.bincount(idx, minlength=self.grade_support.numel())
+
     def forward(self, pred, batch):
+        self._count_grades(batch["quality_idx"])
         v = self._total_var(pred, batch)
         return 0.5 * ((batch["target"] - pred["mu"]) ** 2 / v + torch.log(v)).mean()
 
@@ -113,7 +124,16 @@ class AXLE(nn.Module):
         """Learned parameters worth reporting next to the metrics.
 
         ``g`` says how much the harvester's own reliability grades scale the supplied
-        variance: g(Bad) > g(Good) means the model *agrees* with the grading.
+        variance: g(Bad) > g(Good) would mean the model *agrees* with the grading.
+
+        Each ``g_*`` comes with ``share_*``, the fraction of training pixels carrying
+        that grade. **A ``g`` whose share is ~0 is not a learned value** -- it never
+        received a gradient and still sits at softplus(0) = 0.693. Reporting the two
+        together is what stops a frozen initial value being read as a finding.
         """
         g = F.softplus(self.log_g) + _EPS
-        return {f"g_{name}": float(v) for name, v in zip(("good", "average", "bad"), g)}
+        names = ("good", "average", "bad")
+        total = max(float(self.grade_support.sum()), 1.0)
+        out = {f"g_{n}": float(v) for n, v in zip(names, g)}
+        out.update({f"share_{n}": float(self.grade_support[i]) / total for i, n in enumerate(names)})
+        return out
