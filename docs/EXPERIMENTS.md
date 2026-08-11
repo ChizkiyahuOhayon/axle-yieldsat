@@ -27,6 +27,70 @@ exact command, full results, and reading. Newest first.
 
 ---
 
+## Run 007 — Full-band Germany + the first Argentina CV10 against the published 0.84
+
+- **Date**: 2026-08-11. Commit `e3427e3`. Transformer, shift-matched selection, 30 epochs.
+- Caches (fp16, static/dynamic split) all built: ARG 5.1 GB, BRA 4.1, URU 2.1, DE 1.2 —
+  **12.5 GB for all four countries at 120 bands**, as designed.
+
+### A. Argentina soybean CV10 — the direct comparison (12 bands, seed 0)
+
+| loss | field R² | pixel R² | fold σ |
+|---|---|---|---|
+| `axle` | **0.718** | 0.616 | 0.118 |
+| `mse` | 0.700 | 0.607 | 0.098 |
+| `axle_spatial` | 0.696 | 0.614 | 0.126 |
+
+**Published YieldSAT: 0.84.** Our baseline reaches **0.700** — respectable, not matching.
+The 0.14 gap is attributable to three things we have not yet varied: 12 bands vs 120,
+transformer capacity (hidden 64, 2 layers), and a 30-epoch budget. `axle`'s +0.018 is
+inside the fold spread at one seed; not a claim yet.
+
+### B. Germany full-band (45 configs, 3 seeds) — bands do not rescue Germany
+
+| loss | cv10 | LOYO | LORO |
+|---|---|---|---|
+| `mse` | 0.534 ± 0.073 | **−0.536 ± 0.213** | −4.397 ± 0.431 |
+| `axle` | **0.546 ± 0.019** | −0.755 ± 0.217 | −3.700 ± 0.395 |
+| `hetero` | 0.529 ± 0.042 | −0.689 ± 0.190 | −3.773 ± 0.375 |
+| `axle_spatial` | 0.474 ± 0.075 | −0.786 ± 0.319 | −3.431 ± 0.155 |
+| `invvar` | 0.421 ± 0.054 | −0.878 ± 0.224 | −3.321 ± 0.914 |
+
+Against the 12-band Run 006, going to 120 bands buys **+0.05 on cv10** and nothing under
+shift (LORO is *worse*: −3.35 → −4.40). Germany is 188 wheat fields on 6 farms; no
+feature set fixes that. **Germany is the small-country ablation, not a main-table row.**
+
+One thing did move: `axle_spatial` cv10 goes 0.284 → 0.474 with the full band set, so
+M2's in-distribution penalty shrinks when the features are strong.
+
+### C. Calibration — the result that does not need a significance test
+
+Deep Ensemble (the benchmark's strongest baseline) versus AXLE, Germany full-band:
+
+| model | pixel NLL | PICP@90 |
+|---|---|---|
+| `mse` ×5, cv10 | **20.8** | 0.336 |
+| `mse` ×5, LOYO | **51.4** | 0.348 |
+| `mse` ×5, LORO | **51.3** | 0.277 |
+| `axle` ×5, cv10 | **2.22** | **0.842** |
+| `axle` ×1, all protocols | 2.4–5.2 | 0.60–0.80 |
+
+**A nominal 90% interval that covers 28%.** The Deep Ensemble's variance estimate fails
+under shift by an order of magnitude in NLL, while AXLE — at statistically identical
+accuracy — stays usable. This holds across three protocols, two countries, single models
+and ensembles, and every selection protocol we have tried. It is the strongest claim in
+the project and it is a *calibration* claim, not an accuracy one.
+
+### Next — tune the baseline before comparing losses again
+
+Comparing objectives on a backbone that reaches 0.70 where the literature reaches 0.84
+risks measuring a shared bottleneck rather than the objectives. Before any further loss
+comparison on Argentina: sweep capacity (hidden 64/128/256) and budget (30/60 epochs) with
+`mse` alone on ARG soybean CV10 and find what closes the gap. Then run the full loss grid
+at that configuration.
+
+---
+
 ## Run 006 — Germany, corrected protocol, 27/27: no shift effect, but calibration survives
 
 - **Date**: 2026-08-10. Commit `1e79558`. Transformer, 12 S2 bands, 3 seeds, shift-matched

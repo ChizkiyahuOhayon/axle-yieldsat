@@ -1,0 +1,6 @@
+# Full 120-band Brazil cache (fp16): 16 time-varying bands x 24 steps + 104 static.
+name: brazil_full
+cache_dir: data/cache_full/Brazil
+nan_fill: 0.0
+use_bands: null
+use_static: true
