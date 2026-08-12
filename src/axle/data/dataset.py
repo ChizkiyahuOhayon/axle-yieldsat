@@ -27,6 +27,8 @@ class YieldSATPixels(Dataset):
         sigma2_acq    FloatTensor ()       -- s_i^2 / max(n_i, 1); 0 if signal missing
         has_rel       FloatTensor ()       -- 1.0 if the reliability signal is present
         quality_idx   LongTensor  ()       -- 0/1/2 (Good/Average/Bad), 3 if missing
+        row_idx       LongTensor  ()       -- row in ``meta``, so predictions can be
+                                              joined back regardless of batch ordering
 
     Reads both cache layouts: a plain ``bands.json`` list (dynamic bands only, the
     S2-only caches) and the ``{"dynamic": [...], "static": [...]}`` manifest written
@@ -110,6 +112,7 @@ class YieldSATPixels(Dataset):
             "sigma2_acq": torch.tensor(self._s2acq[r]),
             "has_rel": torch.tensor(self._has_rel[r]),
             "quality_idx": torch.tensor(self._qidx[r]),
+            "row_idx": torch.tensor(r, dtype=torch.long),
         }
         if self.static is not None:
             item["static"] = torch.from_numpy(self._static(r))
@@ -132,6 +135,7 @@ class YieldSATPixels(Dataset):
             "sigma2_acq": torch.from_numpy(self._s2acq[r]),
             "has_rel": torch.from_numpy(self._has_rel[r]),
             "quality_idx": torch.from_numpy(self._qidx[r]),
+            "row_idx": torch.from_numpy(r.astype(np.int64)),
         }
         if self.static is not None:
             out["static"] = torch.from_numpy(self._static(r))

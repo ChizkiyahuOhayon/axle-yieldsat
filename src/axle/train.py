@@ -19,7 +19,7 @@ import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 
 from .data.dataset import YieldSATPixels
-from .data.patches import YieldSATPatches, load_directions
+from .data.patches import YieldSATPatches, YieldSATTiles, load_directions
 from .data.splits import SELECTION_KEY, inner_split, make_splits
 from .losses import build_loss
 from .models import build_model
@@ -67,7 +67,12 @@ def run(cfg: DictConfig) -> dict:
 
     # AXLE-M2 trains on field patches (correlated NLL); everything else on pixel bags.
     # Validation is per-pixel either way -- the objective changes, not the predictor.
-    use_patches = getattr(build_loss(cfg.loss.name, **loss_kw), "requires_patches", False)
+    # M2's correlated NLL needs field patches; a 3D backbone needs *dense* tiles, and
+    # then validation must go through tiles too (it cannot score loose pixels).
+    spatial_model = cfg.model.name == "spatial3d"
+    use_patches = getattr(build_loss(cfg.loss.name, **loss_kw), "requires_patches", False) or spatial_model
+    tile = int(cfg.model.tile) if spatial_model else int(cfg.patch.tile)
+    Patches = YieldSATTiles if spatial_model else YieldSATPatches
     directions, train_bs = None, cfg.train.batch_size
     if use_patches:
         train_bs = cfg.train.patch_batch_size
@@ -77,7 +82,7 @@ def run(cfg: DictConfig) -> dict:
                   "run scripts/estimate_directions.py to anchor the swath geometry")
         else:
             share = float(directions["has_direction"].mean())
-            print(f"[patches] tile={cfg.patch.tile} min_pixels={cfg.patch.min_pixels} | "
+            print(f"[patches] {Patches.__name__} tile={tile} min_pixels={cfg.patch.min_pixels} | "
                   f"d_f found for {share:.1%} of {len(directions)} fields")
 
     fold_metrics, all_preds = [], []
@@ -89,15 +94,16 @@ def run(cfg: DictConfig) -> dict:
                                            frac=cfg.train.inner_val_frac, seed=cfg.seed)
         tr = sub_pos[fit_local]
         va = sub_pos[va_local]
-        select_ds = (YieldSATPixels(cfg.data.cache_dir, indices=sub_pos[sel_local], **ds_kw)
-                     if len(sel_local) else None)
-        train_ds = (
-            YieldSATPatches(cfg.data.cache_dir, indices=tr, tile=cfg.patch.tile,
-                            min_pixels=cfg.patch.min_pixels, directions=directions, **ds_kw)
-            if use_patches else
-            YieldSATPixels(cfg.data.cache_dir, indices=tr, **ds_kw)
-        )
-        val_ds = YieldSATPixels(cfg.data.cache_dir, indices=va, **ds_kw)
+        def make(idx, want_tiles):
+            """A spatial backbone must see tiles everywhere, including at validation."""
+            if want_tiles:
+                return Patches(cfg.data.cache_dir, indices=idx, tile=tile,
+                               min_pixels=cfg.patch.min_pixels, directions=directions, **ds_kw)
+            return YieldSATPixels(cfg.data.cache_dir, indices=idx, **ds_kw)
+
+        select_ds = make(sub_pos[sel_local], spatial_model) if len(sel_local) else None
+        train_ds = make(tr, use_patches)
+        val_ds = make(va, spatial_model)
 
         def build():  # fresh (model, loss) per ensemble member
             loss_fn = build_loss(cfg.loss.name, **loss_kw)

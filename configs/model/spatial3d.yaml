@@ -1,0 +1,9 @@
+# 3D-CNN over a field tile (space + time) -- the family the YieldSAT benchmark reports
+# as strongest (3D-LSTM 0.77, 3D-ConvLSTM 0.79-0.82 on ARG-S CV10, vs Transformer 0.73).
+# Consumes dense tiles, so it forces the tile dataloader regardless of the loss.
+name: spatial3d
+tile: 8          # must equal patch.tile; 8x8 keeps tiles ~69% occupied and covers 99% of pixels
+hidden: 64
+layers: 3
+kernel: 3
+dropout: 0.1

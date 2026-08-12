@@ -43,7 +43,7 @@ def test_collate_pads_and_marks(cache):
     ds = YieldSATPatches(cache, tile=8, min_pixels=8)
     items = [ds[i] for i in range(4)]
     sizes = [it["target"].shape[0] for it in items]
-    b = YieldSATPatches.collate(items)
+    b = YieldSATPatches.collate_padded(items)
     k = max(sizes)
     assert b["sample"].shape == (4, k, ds.seq_len, ds.num_features)
     assert b["pix_mask"].shape == (4, k)

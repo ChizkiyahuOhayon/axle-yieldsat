@@ -118,7 +118,7 @@ class YieldSATPatches(Dataset):
         return out
 
     @staticmethod
-    def collate(batch: list[dict]) -> dict:
+    def collate_padded(batch: list[dict]) -> dict:
         """Pad a list of variable-size patches to the batch maximum.
 
         Adds ``pix_mask`` (B, K): 1 for real pixels, 0 for padding. Padded targets and
@@ -149,4 +149,50 @@ class YieldSATPatches(Dataset):
         ])
         return out
 
-    collate_fn = collate  # picked up by the trainer's DataLoader
+    collate_fn = collate_padded  # picked up by the trainer's DataLoader
+
+
+class YieldSATTiles(YieldSATPatches):
+    """A field tile as a *dense* ``tile x tile`` raster, for spatial-temporal backbones.
+
+    The benchmark's strongest models are 3D-CNN based (3D-LSTM, 3D-ConvLSTM, AFF), and
+    those need a grid, not a bag of pixels. Fields are irregular polygons, so a tile is
+    only ~58% occupied at 16x16 and ~69% at 8x8; the empty cells are zero-filled and
+    flagged in ``pix_mask``, exactly as padded pixels already are, so every loss and
+    metric downstream is unchanged.
+
+    Items keep :class:`YieldSATPatches`' keys with a *fixed* ``K = tile**2`` in row-major
+    order, which lets a 3D backbone reshape ``sample`` to ``(T, C, tile, tile)`` without
+    the dataset carrying a second copy of the inputs.
+    """
+
+    def __getitem__(self, i: int) -> dict:
+        pos = self.patches[i]
+        k = self.tile * self.tile
+        coords = self._coords[pos]
+        r0, c0 = coords[:, 0].min(), coords[:, 1].min()
+        cell = ((coords[:, 0] - r0).astype(np.int64) * self.tile
+                + (coords[:, 1] - c0).astype(np.int64))
+
+        src = self.pixels.gather(pos)
+        out: dict[str, torch.Tensor] = {}
+        for key, v in src.items():
+            dense = torch.zeros((k, *v.shape[1:]), dtype=v.dtype)
+            if key == "quality_idx":
+                dense += 3                                   # empty cells -> "missing" grade
+            dense[cell] = v
+            out[key] = dense
+
+        grid_rc = torch.stack([torch.arange(k) // self.tile, torch.arange(k) % self.tile], 1)
+        out["coords"] = (grid_rc + torch.tensor([r0, c0])).float()
+        out["direction"] = torch.from_numpy(self._dir[i])
+        out["pix_mask"] = torch.zeros(k)
+        out["pix_mask"][cell] = 1.0
+        return out
+
+    @staticmethod
+    def collate_dense(batch: list[dict]) -> dict:
+        """Every tile already has the same K, so this is a plain stack."""
+        return {key: torch.stack([b[key] for b in batch]) for key in batch[0]}
+
+    collate_fn = collate_dense

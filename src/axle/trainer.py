@@ -39,6 +39,9 @@ def _forward(model, batch: dict):
     itself stays untouched -- M2 changes the objective, not the predictor.
     """
     x, mask, static = batch["sample"], batch["mask"], batch.get("static")
+    if getattr(model, "consumes_patches", False):
+        # a spatial backbone wants the tile intact and emits (B, K, D) itself
+        return model(x, mask, static, batch.get("pix_mask"))
     if x.dim() != 4:
         return model(x, mask, static)
     b, k = x.shape[:2]
@@ -191,23 +194,35 @@ def _aggregate_members(dfs: list[pd.DataFrame]) -> pd.DataFrame:
 
 @torch.no_grad()
 def _validate(model, loss_fn, loader, val_ds, device) -> pd.DataFrame:
+    """Score a loader and join predictions back to ``meta`` by each pixel's row index.
+
+    Joining on ``row_idx`` rather than on batch order is what lets a tile loader (whose
+    items contain empty cells, dropped here via ``pix_mask``) and a pixel loader produce
+    the same table.
+    """
     model.eval()
-    tgt, pred, var = [], [], []
+    rows, tgt, pred, var = [], [], [], []
     for batch in loader:
         b = _to_device(batch, device)
         out = _forward(model, b)
         mu = out["mu"] if isinstance(out, dict) else out
         v = loss_fn.predictive_variance(out, b) if hasattr(loss_fn, "predictive_variance") else None
-        tgt.extend(b["target"].cpu().numpy())
-        pred.extend(mu.cpu().numpy())
-        var.extend(v.cpu().numpy() if v is not None else [np.nan] * len(mu))
-    # positions in val_ds map back to meta rows for field/reliability columns
-    meta = val_ds.meta.iloc[val_ds.rows].reset_index(drop=True)
+        keep = b.get("pix_mask")
+        keep = torch.ones_like(mu, dtype=torch.bool) if keep is None else keep.reshape(mu.shape) > 0.5
+        rows.append(b["row_idx"].reshape(-1)[keep.reshape(-1)].cpu().numpy())
+        tgt.append(b["target"].reshape(-1)[keep.reshape(-1)].cpu().numpy())
+        pred.append(mu.reshape(-1)[keep.reshape(-1)].cpu().numpy())
+        var.append((v.reshape(-1)[keep.reshape(-1)].cpu().numpy() if v is not None
+                    else np.full(int(keep.sum()), np.nan, np.float32)))
+
+    r = np.concatenate(rows)
+    meta = val_ds.meta if not hasattr(val_ds, "pixels") else val_ds.pixels.meta
+    meta = meta.iloc[r]
     return pd.DataFrame({
         "index": meta["index"].to_numpy(),
         "field_shared_name": meta["field_shared_name"].to_numpy(),
         "n_i": meta["n_i"].to_numpy() if "n_i" in meta else np.nan,
-        "target": np.asarray(tgt, np.float32),
-        "prediction": np.asarray(pred, np.float32),
-        "variance": np.asarray(var, np.float32),
+        "target": np.concatenate(tgt).astype(np.float32),
+        "prediction": np.concatenate(pred).astype(np.float32),
+        "variance": np.concatenate(var).astype(np.float32),
     })

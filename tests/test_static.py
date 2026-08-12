@@ -82,7 +82,7 @@ def test_patches_carry_static(static_cache):
     item = ds[0]
     k = item["target"].shape[0]
     assert item["static"].shape == (k, 8)
-    batch = YieldSATPatches.collate([ds[0], ds[1]])
+    batch = YieldSATPatches.collate_padded([ds[0], ds[1]])
     assert batch["static"].shape[0] == 2 and batch["static"].shape[2] == 8
 
 

@@ -7,7 +7,8 @@ from torch import nn
 from . import backbones
 from .heads import MeanHead, MeanVarHead
 
-_BACKBONES = {"lstm": backbones.LSTM, "tempcnn": backbones.TempCNN, "transformer": backbones.Transformer}
+_BACKBONES = {"lstm": backbones.LSTM, "tempcnn": backbones.TempCNN,
+              "transformer": backbones.Transformer, "spatial3d": backbones.Spatial3D}
 
 
 class StaticEncoder(nn.Module):
@@ -35,8 +36,14 @@ class YieldModel(nn.Module):
         self.head = head
         self.static_encoder = static_encoder
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor, static: torch.Tensor | None = None):
-        h = self.backbone(x, mask)
+    @property
+    def consumes_patches(self) -> bool:
+        """True when the backbone needs whole tiles (3D CNN) rather than loose pixels."""
+        return getattr(self.backbone, "consumes_patches", False)
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor, static: torch.Tensor | None = None,
+                pix_mask: torch.Tensor | None = None):
+        h = self.backbone(x, mask, pix_mask) if self.consumes_patches else self.backbone(x, mask)
         if self.static_encoder is not None:
             if static is None:
                 raise ValueError("model was built with static features but the batch has none")
