@@ -27,6 +27,76 @@ exact command, full results, and reading. Newest first.
 
 ---
 
+## Run 008 — We pass the benchmark's Transformer, and full bands *hurt* under shift
+
+- **Date**: 2026-08-12. Commit `1e79558`/`e3427e3`. Transformer, shift-matched selection,
+  30 epochs, full-band (16 dynamic + 104 static) caches. Argentina/Brazil/Uruguay rows are
+  seed 0 only; Germany DE is 3 seeds.
+
+### A. Argentina CV10, full band — the comparison target is met
+
+| crop | `mse` | `axle` | published (ARG-S) |
+|---|---|---|---|
+| soybean | 0.743 | **0.744** | Transformer **0.73** · LSTM 0.72 · 3D-LSTM 0.77 · AFF 0.84 |
+| corn | 0.690 | **0.728** | — |
+| wheat | **0.799** | 0.777 | — |
+
+**ARG-S CV10 0.743 against the published Transformer's 0.73.** Going 12 → 120 bands moved
+Argentina 0.700 → 0.743 (Germany only gained 0.05, and their own Transformer *lost* 0.01
+to input fusion — this is the first place the extra modalities clearly paid).
+
+### B. The finding: static context helps in-distribution and hurts under shift
+
+Argentina soybean, same model, 12-band vs full-band:
+
+| protocol | 12 bands | full band | Δ |
+|---|---|---|---|
+| cv10 | 0.700 | **0.743** | **+0.043** |
+| LOYO (`mse`) | 0.245 | **−0.064** | **−0.309** |
+| LORO (`mse`) | 0.510 | **0.391** | **−0.119** |
+
+The 104 static channels are soil (96), DEM (5) and **coordinates (3)** — largely *identity*
+features. They let the model memorise a location's yield level, which is exactly what does
+not transfer to a held-out year or a held-out farm. In-distribution they are worth +0.04;
+under shift they cost 0.12–0.31.
+
+That is a clean, testable claim about the benchmark, and it is directly actionable:
+`data.use_static=false` reruns the same models without the static block. Testing it is the
+next experiment.
+
+Also visible here, one seed: `axle` beats `mse` on ARG soybean **LOYO 0.062 vs −0.064**
+(+0.126) and on corn cv10 (+0.038) — the first time AXLE leads under shift on a
+valid protocol and a dataset large enough to measure it.
+
+### C. Brazil is misconfigured, not broken
+
+`brazil_full` cv10 `mse` = **−0.709 with fold σ 4.75**. That run had no `crop` filter, so
+soybean, corn and wheat (different yield ranges entirely) were pooled into one regression.
+Brazil must be run per crop, like the others. Uruguay (soybean only) is fine: 0.651 `mse` /
+0.679 `axle`.
+
+### D. Calibration, now at 3 seeds (Germany full-band, Deep Ensemble ×5)
+
+| protocol | `mse` ×5 NLL | `axle` ×5 NLL | `mse` PICP@90 | `axle` PICP@90 |
+|---|---|---|---|---|
+| cv10 | 20.8 | **2.22** | 0.336 | **0.848** |
+| LOYO | 51.4 | **2.54** | 0.348 | **0.811** |
+| LORO | 51.3 | **3.78** | 0.277 | **0.670** |
+
+An order of magnitude in NLL and a nominal 90% interval covering 28%. Unchanged by every
+protocol revision so far.
+
+### Next
+
+1. `use_static=false` on Argentina LOYO/LORO — does dropping the identity features recover
+   the shift performance? (Cheap: no new cache.)
+2. Brazil per crop.
+3. `spatial3d` on ARG-S CV10 — the 3D-CNN family the benchmark wins with (3D-LSTM 0.77,
+   3D-ConvLSTM 0.79–0.82, AFF 0.84).
+4. Seeds 1–2 on everything that matters; all Argentina/Brazil/Uruguay rows are one seed.
+
+---
+
 ## Run 007 — Full-band Germany + the first Argentina CV10 against the published 0.84
 
 - **Date**: 2026-08-11. Commit `e3427e3`. Transformer, shift-matched selection, 30 epochs.
