@@ -27,6 +27,81 @@ exact command, full results, and reading. Newest first.
 
 ---
 
+## Run 009 — The static-context ablation lands: dropping soil/DEM/coords improves *everything*
+
+- **Date**: 2026-08-13. Transformer, shift-matched selection, 30 epochs, Argentina soybean.
+  Argentina rows are seed 0; Germany DE is 3 seeds (27/27, complete).
+
+### A. The band ablation — Argentina soybean, field R²
+
+| input | cv10 | LOYO | LORO |
+|---|---|---|---|
+| 12 S2 bands | 0.700 | 0.245 | 0.510 |
+| 16 dynamic + **104 static** (full) | 0.743 | −0.064 | 0.391 |
+| **16 dynamic, no static** | **0.760** | **0.123** | **0.531** |
+
+Two separable effects, both large:
+
+- **Weather helps.** 12 S2 → 16 dynamic (S2 + temp_mean/max/min + total_prec) is worth
+  roughly +0.06 on cv10.
+- **Static context hurts, everywhere.** Adding the 104 soil/DEM/coordinate channels costs
+  **−0.017 in-distribution, −0.187 under year shift, −0.140 under farm shift.** They are
+  identity features: they let the model memorise a location's yield level, which a
+  held-out year or farm invalidates — and they are not even paying for themselves on
+  cv10.
+
+Our best Argentina soybean CV10 is now **0.760**, against the published Transformer 0.73
+and LSTM 0.72 (AFF, a different architecture class, is 0.84).
+
+### B. Argentina soybean under shift, full band (seed 0)
+
+| loss | cv10 | LOYO | LORO |
+|---|---|---|---|
+| `mse` | 0.743 | −0.064 | 0.391 |
+| `axle` (M1) | 0.744 | **0.062** | 0.352 |
+| `axle_spatial` (M2) | 0.729 | −0.018 | **0.408** |
+
+The M1-under-temporal-shift / M2-under-spatial-shift split that Run 004 claimed and
+Run 005/006 retracted **reappears here** — on 751 fields and 57 farms instead of Germany's
+188 and 6, under the corrected protocol. Fold σ is 0.47–0.62 (LOYO) and 0.18–0.24 (LORO)
+at one seed, so this is a hypothesis worth seeds, not yet a result. **It is the single
+most important thing to replicate next.**
+
+### C. 3D spatial-temporal backbone, first run (ARG-S cv10, seed 0)
+
+| loss | field R² |
+|---|---|
+| `mse` | 0.707 |
+| `axle` | 0.713 |
+| `axle_spatial` | **0.733** |
+
+Below the Transformer's 0.743 as configured (tile 8, hidden 64, 3 layers) — the family
+needs capacity work before it can reach the published 3D-LSTM 0.77 / 3D-ConvLSTM 0.79–0.82.
+Worth noting: **M2 is the best loss on the spatial backbone** (0.733 vs 0.707), and its
+fitted ρ hits 0.919, the highest we have measured — the correlated term earns more when the
+predictor itself is spatial.
+
+### D. Germany Deep Ensemble, complete (27/27, 3 seeds)
+
+| loss ×5 | cv10 | LOYO | LORO | NLL (cv10/LOYO/LORO) | PICP@90 |
+|---|---|---|---|---|---|
+| `mse` | **0.584** | **−0.460** | −3.203 | 20.8 / 51.4 / 51.3 | 0.28–0.35 |
+| `axle` | 0.561 | −0.622 | −3.122 | **2.22 / 2.54 / 3.78** | **0.67–0.85** |
+| `axle_spatial` | 0.507 | −0.731 | **−3.065** | 2.28 / 2.59 / 3.51 | 0.65–0.84 |
+
+On Germany, MSE still wins on accuracy; AXLE wins on calibration by an order of magnitude.
+Both statements are now 3-seed stable.
+
+### Next
+
+1. **Seeds 1–2 on Argentina** — B is the paper's potential headline and rests on one seed.
+2. **No-static as the default for shift protocols**, plus the missing `axle`/`axle_spatial`
+   rows of that ablation.
+3. **Brazil per crop** (the pooled-crop run is invalid).
+4. **3D backbone capacity** — hidden/layers/tile, to reach the 0.77–0.82 band.
+
+---
+
 ## Run 008 — We pass the benchmark's Transformer, and full bands *hurt* under shift
 
 - **Date**: 2026-08-12. Commit `1e79558`/`e3427e3`. Transformer, shift-matched selection,
