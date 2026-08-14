@@ -8,12 +8,18 @@ pivot of the headline metric. Writes ``results.csv`` and a markdown table.
 (members>1) never merge. Rows without a ``run`` block (e.g. stale synthetic-demo
 outputs from before this field existed) are dropped with a warning.
 
-    python scripts/collect_results.py multirun/ --metric field_r2
-    python scripts/collect_results.py multirun/ outputs/ --metric field_r2 --out results
+A configuration re-run under the same seed is a *replacement*, not a repeat: the protocol
+changed under it (see docs/EXPERIMENTS.md). Averaging those would silently blend protocol
+generations, so only the newest run of each (config, seed) is kept, and ``--since`` drops
+everything written before a cutoff date.
+
+    python scripts/collect_results.py outputs/ --metric field_r2
+    python scripts/collect_results.py outputs/ --since 2026-08-12 --out docs/results_latest
 """
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 from pathlib import Path
 
@@ -52,10 +58,18 @@ def load(dirs: list[str]) -> tuple[pd.DataFrame, int]:
             if not run or run.get("data") is None:  # stale / pre-run-block file
                 dropped += 1
                 continue
-            row = {**{k: run.get(k) for k in [*KEYS, "seed"]}, "path": str(mj.parent)}
+            row = {**{k: run.get(k) for k in [*KEYS, "seed"]}, "path": str(mj.parent),
+                   "mtime": mj.stat().st_mtime}
             row.update({k: v for k, v in m.items() if isinstance(v, (int, float))})
             rows.append(row)
     return pd.DataFrame(rows), dropped
+
+
+def keep_newest(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """One row per (config, seed): the newest. Re-runs supersede, they do not average."""
+    n = len(df)
+    df = df.sort_values("mtime").drop_duplicates([*KEYS, "seed"], keep="last")
+    return df, n - len(df)
 
 
 def main():
@@ -63,6 +77,8 @@ def main():
     ap.add_argument("dirs", nargs="+", help="directories to scan (e.g. multirun/ outputs/)")
     ap.add_argument("--metric", default="field_r2", help="headline metric for the pivot (base name)")
     ap.add_argument("--out", default="results", help="output basename (writes .csv and .md)")
+    ap.add_argument("--since", help="drop runs written before this date (YYYY-MM-DD), "
+                                    "to exclude earlier protocol generations")
     args = ap.parse_args()
 
     df, dropped = load(args.dirs)
@@ -72,21 +88,35 @@ def main():
         print("no usable metrics.json found under:", ", ".join(args.dirs))
         return
 
+    if args.since:
+        cut = dt.datetime.strptime(args.since, "%Y-%m-%d").timestamp()
+        df, old = df[df["mtime"] >= cut], int((df["mtime"] < cut).sum())
+        print(f"[since {args.since}] dropped {old} run(s) from earlier protocol generations")
+        if df.empty:
+            print("nothing left after --since")
+            return
+    df, superseded = keep_newest(df)
+    if superseded:
+        print(f"[note] {superseded} re-run(s) superseded by a newer run of the same (config, seed)")
+    newest = df.groupby(KEYS, dropna=False)["mtime"].max()
+
     # collapse repeated (config x seed) runs so each config appears once, and report the
     # spread *across seeds* -- the error bar a paper needs, distinct from the fold std
     mean_col = f"{args.metric}_mean"
     seed_std_col = f"{args.metric}_seed_std"
-    num = [c for c in df.select_dtypes("number").columns if c != "seed"]
+    num = [c for c in df.select_dtypes("number").columns if c not in ("seed", "mtime")]
     grp = df.groupby(KEYS, as_index=False, dropna=False)
     spread = grp.agg(**{seed_std_col: (mean_col, "std"), "n_seeds": ("seed", "nunique")}) \
         if mean_col in df else None
     df = grp[num].mean()
     if spread is not None:
         df = df.merge(spread, on=KEYS, how="left")
+    df = df.merge(newest.rename("last_run").reset_index(), on=KEYS, how="left")
+    df["last_run"] = pd.to_datetime(df["last_run"], unit="s").dt.strftime("%m-%d %H:%M")
 
     show = [c for c in [*KEYS, mean_col, seed_std_col, "n_seeds", f"{args.metric}_std",
                         "pixel_r2_mean", "pixel_picp90_mean", "reliability_gap_mean",
-                        "n_folds"] if c in df]
+                        "n_folds", "last_run"] if c in df]
     table = df[show].sort_values([c for c in KEYS if c in df]).reset_index(drop=True)
     pd.set_option("display.width", 180, "display.max_columns", 40)
     print(table.to_string(index=False))

@@ -1,0 +1,70 @@
+"""Result collection: what counts as a repeat, and what supersedes.
+
+The protocol changed under some configs mid-project (docs/EXPERIMENTS.md), so the same
+(config, seed) exists on disk more than once. Averaging those would blend protocol
+generations into the main table; averaging across *seeds* is exactly what we want. These
+tests pin that asymmetry.
+"""
+import importlib.util
+import json
+import os
+from pathlib import Path
+
+import pytest
+
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "collect_results.py"
+
+
+@pytest.fixture(scope="module")
+def collect():
+    spec = importlib.util.spec_from_file_location("collect_results", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def write(root: Path, name: str, *, seed: int, r2: float, mtime: float, **run):
+    d = root / name
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / "metrics.json"
+    p.write_text(json.dumps({
+        "field_r2_mean": r2, "field_r2_std": 0.1, "n_folds": 10,
+        "run": {"data": "argentina_full", "model": "transformer", "loss": "axle",
+                "protocol": "loro", "crop": "soybean", "members": 1, "seed": seed, **run},
+    }))
+    os.utime(p, (mtime, mtime))
+    return p
+
+
+def test_a_rerun_of_the_same_seed_supersedes_rather_than_averages(collect, tmp_path):
+    write(tmp_path, "old", seed=0, r2=0.10, mtime=1_000)   # pre-fix protocol
+    write(tmp_path, "new", seed=0, r2=0.55, mtime=2_000)   # post-fix, same config+seed
+    df, _ = collect.load([str(tmp_path)])
+    kept, superseded = collect.keep_newest(df)
+    assert superseded == 1
+    assert kept["field_r2_mean"].tolist() == [0.55], "the older generation leaked in"
+
+
+def test_different_seeds_are_kept_and_averaged(collect, tmp_path):
+    for seed, r2 in [(0, 0.50), (1, 0.60)]:
+        write(tmp_path, f"s{seed}", seed=seed, r2=r2, mtime=2_000 + seed)
+    df, _ = collect.load([str(tmp_path)])
+    kept, superseded = collect.keep_newest(df)
+    assert superseded == 0 and len(kept) == 2
+
+
+def test_members_never_merge(collect, tmp_path):
+    """A deep ensemble is a different row, not a repeat of the single model."""
+    write(tmp_path, "single", seed=0, r2=0.50, mtime=2_000, members=1)
+    write(tmp_path, "ens", seed=0, r2=0.60, mtime=2_001, members=5)
+    df, _ = collect.load([str(tmp_path)])
+    kept, superseded = collect.keep_newest(df)
+    assert superseded == 0 and sorted(kept["members"]) == [1, 5]
+
+
+def test_runs_without_a_run_block_are_dropped(collect, tmp_path):
+    (tmp_path / "stale").mkdir()
+    (tmp_path / "stale" / "metrics.json").write_text(json.dumps({"field_r2_mean": 0.9}))
+    write(tmp_path, "good", seed=0, r2=0.50, mtime=2_000)
+    df, dropped = collect.load([str(tmp_path)])
+    assert dropped == 1 and len(df) == 1
