@@ -25,7 +25,25 @@ from pathlib import Path
 
 import pandas as pd
 
-KEYS = ["data", "model", "loss", "protocol", "crop", "members"]
+KEYS = ["data", "model", "loss", "protocol", "crop", "members", "input"]
+
+
+def input_arm(run: dict, run_dir: Path) -> str:
+    """Which input arm a run used -- ``data.name`` alone does not say.
+
+    One cache serves several (12 S2 bands / 16 dynamic / 16 + 104 static), so without
+    this the band ablation's arms collapse onto one row. Newer runs record the two
+    dimensions; older ones are recovered from the ``config.yaml`` saved beside them.
+    """
+    if run.get("in_dim") is not None:
+        return f"{run['in_dim']}d" + (f"+{run['static_dim']}s" if run.get("static_dim") else "")
+    try:
+        import yaml
+        data = yaml.safe_load((run_dir / "config.yaml").read_text())["data"]
+    except Exception:
+        return "?"
+    bands = data.get("use_bands")
+    return (f"{len(bands)}d" if bands else "alld") + ("+s" if data.get("use_static", True) else "")
 
 
 def to_markdown(df: pd.DataFrame, floatfmt: str = "{:.4f}") -> str:
@@ -59,7 +77,7 @@ def load(dirs: list[str]) -> tuple[pd.DataFrame, int]:
                 dropped += 1
                 continue
             row = {**{k: run.get(k) for k in [*KEYS, "seed"]}, "path": str(mj.parent),
-                   "mtime": mj.stat().st_mtime}
+                   "input": input_arm(run, mj.parent), "mtime": mj.stat().st_mtime}
             row.update({k: v for k, v in m.items() if isinstance(v, (int, float))})
             rows.append(row)
     return pd.DataFrame(rows), dropped
@@ -124,9 +142,9 @@ def main():
     df.to_csv(f"{args.out}.csv", index=False)
     Path(f"{args.out}.md").write_text(to_markdown(table))
     if mean_col in df:
-        piv = df.pivot_table(index=["data", "model", "crop", "members", "loss"],
+        piv = df.pivot_table(index=["data", "model", "crop", "input", "members", "loss"],
                              columns="protocol", values=mean_col)
-        print(f"\n=== {mean_col} by loss x protocol (members separated) ===")
+        print(f"\n=== {mean_col} by loss x protocol (input arm and members separated) ===")
         print(piv.to_string())
     print(f"\nwrote {args.out}.csv and {args.out}.md ({len(df)} configs)")
 

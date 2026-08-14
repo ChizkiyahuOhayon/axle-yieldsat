@@ -137,6 +137,9 @@ def run(cfg: DictConfig) -> dict:
         "data": cfg.data.name, "model": cfg.model.name, "loss": cfg.loss.name,
         "protocol": cfg.protocol.name, "crop": cfg.crop or "all", "seed": cfg.seed,
         "members": members,
+        # the input arm: one cache serves several (12 S2 bands / 16 dynamic / 16+104
+        # static), and without these two numbers those runs are indistinguishable here
+        "in_dim": full.num_features, "static_dim": full.num_static,
     }
     (out / "metrics.json").write_text(json.dumps(summary, indent=2))
     print("\n=== SUMMARY (mean +/- std across folds) ===")
