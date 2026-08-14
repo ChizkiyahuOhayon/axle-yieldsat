@@ -25,6 +25,30 @@ exact command, full results, and reading. Newest first.
 > shift (`SELECTION_KEY`: a held-out **year** for LOYO, a held-out **farm** for LORO,
 > held-out **fields** for CV10). Run 005 is therefore also superseded.
 
+> **Collection fix — 2026-08-14, commits `67d11f5`, `f0287ba`.** Two ways the results
+> table could have been wrong, both now fixed and tested (`tests/test_collect.py`):
+>
+> 1. **Re-runs were averaged, not superseded.** Several `(config, seed)` pairs exist on
+>    disk more than once because the protocol changed under them — e.g.
+>    `argentina_full/soybean/axle/loro/seed=0` has three copies spanning both changes.
+>    The collector averaged them, blending protocol generations. Only the newest run of
+>    each `(config, seed)` is kept now; averaging across *seeds* is unchanged.
+>    `--since YYYY-MM-DD` cuts at a protocol boundary explicitly.
+> 2. **The band ablation's arms merged.** `metrics.json` recorded neither `use_bands` nor
+>    `use_static`, so all three input arms of Run 009's table A (12 S2 / 16 dynamic /
+>    16 + 104 static) looked like one config. `run.in_dim`/`run.static_dim` are written
+>    now and the collector keys on the resulting arm, recovering it from the saved
+>    `config.yaml` for older runs.
+>
+> Any table produced by `collect_results.py` before 2026-08-14 must be regenerated.
+
+> **Completeness audit — 2026-08-14.** A sweep whose *last* config succeeds ends its log
+> with `=== SUMMARY`, so tail-based "did it finish" checks report success even when
+> configs failed mid-sweep. Counting `metrics.json` is the only reliable check.
+> `arg_crops` produced 16/18 (missing `axle_spatial cv10` for corn and wheat) and
+> `arg_seed12` produced 10/12 (missing `axle_spatial loro` seeds 1–2) — the latter is
+> exactly the cell the M2-under-spatial-shift claim rests on.
+
 ---
 
 ## Run 009 — The static-context ablation lands: dropping soil/DEM/coords improves *everything*
